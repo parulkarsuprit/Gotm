@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		D9664D312F6CBA6B00E33B0D /* TranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9664D302F6CBA6A00E33B0D /* TranscriptionService.swift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		D9A3A48E2F6C996400C1E485 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -24,6 +28,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		D9664D302F6CBA6A00E33B0D /* TranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionService.swift; sourceTree = "<group>"; };
+		D9664D332F6CBBE100E33B0D /* whisper-v1.8.4-xcframework.zip */ = {isa = PBXFileReference; lastKnownFileType = archive.zip; name = "whisper-v1.8.4-xcframework.zip"; path = "../../Downloads/whisper-v1.8.4-xcframework.zip"; sourceTree = "<group>"; };
+		D9664D342F6CBBF500E33B0D /* whisper.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = whisper.xcframework; sourceTree = "<group>"; };
 		D9A3A4802F6C996300C1E485 /* Gotm.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Gotm.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D9A3A48D2F6C996400C1E485 /* GotmTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GotmTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D9A3A4972F6C996400C1E485 /* GotmUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GotmUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -72,6 +79,24 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		D9664D322F6CBBE100E33B0D /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				D9664D352F6CBBF500E33B0D /* build-apple */,
+				D9664D332F6CBBE100E33B0D /* whisper-v1.8.4-xcframework.zip */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		D9664D352F6CBBF500E33B0D /* build-apple */ = {
+			isa = PBXGroup;
+			children = (
+				D9664D342F6CBBF500E33B0D /* whisper.xcframework */,
+			);
+			name = "build-apple";
+			path = "../../Downloads/build-apple";
+			sourceTree = "<group>";
+		};
 		D9A3A4772F6C996300C1E485 = {
 			isa = PBXGroup;
 			children = (
@@ -79,6 +104,8 @@
 				D9A3A4902F6C996400C1E485 /* GotmTests */,
 				D9A3A49A2F6C996400C1E485 /* GotmUITests */,
 				D9A3A4812F6C996300C1E485 /* Products */,
+				D9664D302F6CBA6A00E33B0D /* TranscriptionService.swift */,
+				D9664D322F6CBBE100E33B0D /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -236,6 +263,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D9664D312F6CBA6B00E33B0D /* TranscriptionService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

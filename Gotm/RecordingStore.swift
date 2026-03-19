@@ -29,6 +29,15 @@ final class RecordingStore {
         save()
     }
 
+    func updateTranscript(for entryID: UUID, transcript: String) {
+        guard let index = recordings.firstIndex(where: { $0.id == entryID }) else {
+            return
+        }
+
+        recordings[index].transcript = transcript
+        save()
+    }
+
     func delete(_ entry: RecordingEntry) {
         guard let index = recordings.firstIndex(of: entry) else {
             return
@@ -76,7 +85,8 @@ final class RecordingStore {
                         name: entry.name,
                         date: entry.date,
                         duration: assetDuration,
-                        fileURL: entry.fileURL
+                        fileURL: entry.fileURL,
+                        transcript: entry.transcript
                     )
                 }
                 return entry

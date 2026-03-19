@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var isShowingRecordingUI = false
     @State private var selectionMode = false
     @State private var selectedIDs: Set<UUID> = []
+    @State private var transcribingIDs: Set<UUID> = []
 
     var body: some View {
         let isRecordingUI = isShowingRecordingUI || recordingService.isRecording
@@ -103,6 +104,7 @@ struct ContentView: View {
                             playbackDuration: recordingService.playbackDuration,
                             isSelectable: selectionMode,
                             isSelected: selectedIDs.contains(entry.id),
+                            isTranscribing: transcribingIDs.contains(entry.id),
                             playAction: { recordingService.play(url: entry.fileURL) }
                         )
                         .contentShape(Rectangle())
@@ -190,6 +192,16 @@ struct ContentView: View {
         isShowingRecordingUI = false
         if let entry = recordingService.stopRecording() {
             store.add(entry)
+            transcribingIDs.insert(entry.id)
+            Task {
+                do {
+                    let transcript = try await TranscriptionService.shared.transcribe(fileURL: entry.fileURL)
+                    store.updateTranscript(for: entry.id, transcript: transcript)
+                } catch {
+                    // Transcription failed silently
+                }
+                transcribingIDs.remove(entry.id)
+            }
         }
     }
 

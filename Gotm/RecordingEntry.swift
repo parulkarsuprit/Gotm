@@ -6,4 +6,5 @@ struct RecordingEntry: Identifiable, Codable, Equatable {
     let date: Date
     let duration: TimeInterval
     let fileURL: URL
+    var transcript: String?
 }

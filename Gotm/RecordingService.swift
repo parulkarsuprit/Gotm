@@ -100,7 +100,7 @@ final class RecordingService: NSObject {
 
         deactivateAudioSessionIfPossible()
 
-        return RecordingEntry(id: UUID(), name: name, date: date, duration: duration, fileURL: fileURL)
+        return RecordingEntry(id: UUID(), name: name, date: date, duration: duration, fileURL: fileURL, transcript: nil)
     }
 
     func play(url: URL) {
