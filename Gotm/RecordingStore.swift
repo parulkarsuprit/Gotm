@@ -1,0 +1,113 @@
+import AVFoundation
+import Foundation
+import Observation
+
+@MainActor
+@Observable
+final class RecordingStore {
+    private(set) var recordings: [RecordingEntry] = []
+
+    private let fileManager: FileManager
+
+    init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+        load()
+    }
+
+    func add(_ entry: RecordingEntry) {
+        recordings.insert(entry, at: 0)
+        sortByDate()
+        save()
+    }
+
+    func updateName(for entryID: UUID, name: String) {
+        guard let index = recordings.firstIndex(where: { $0.id == entryID }) else {
+            return
+        }
+
+        recordings[index].name = name
+        save()
+    }
+
+    func delete(_ entry: RecordingEntry) {
+        guard let index = recordings.firstIndex(of: entry) else {
+            return
+        }
+
+        let removed = recordings.remove(at: index)
+        deleteFile(at: removed.fileURL)
+        save()
+    }
+
+    static func recordingsDirectory(fileManager: FileManager = .default) -> URL {
+        let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return documents.appending(path: "Recordings", directoryHint: .isDirectory)
+    }
+
+    private func recordingsFileURL() -> URL {
+        let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return documents.appending(path: "recordings.json")
+    }
+
+    private func ensureRecordingsDirectoryExists() {
+        let directory = Self.recordingsDirectory(fileManager: fileManager)
+        if !fileManager.fileExists(atPath: directory.path) {
+            try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+    }
+
+    private func load() {
+        ensureRecordingsDirectoryExists()
+        let url = recordingsFileURL()
+
+        guard let data = try? Data(contentsOf: url) else {
+            recordings = []
+            return
+        }
+
+        do {
+            let decoded = try JSONDecoder().decode([RecordingEntry].self, from: data)
+            let normalized = decoded.map { entry in
+                guard entry.duration <= 0 else { return entry }
+                let assetDuration = AVURLAsset(url: entry.fileURL).duration.seconds
+                if assetDuration.isFinite && assetDuration > 0 {
+                    return RecordingEntry(
+                        id: entry.id,
+                        name: entry.name,
+                        date: entry.date,
+                        duration: assetDuration,
+                        fileURL: entry.fileURL
+                    )
+                }
+                return entry
+            }
+            recordings = normalized.sorted { $0.date > $1.date }
+        } catch {
+            recordings = []
+        }
+    }
+
+    private func save() {
+        ensureRecordingsDirectoryExists()
+        let url = recordingsFileURL()
+
+        do {
+            let data = try JSONEncoder().encode(recordings)
+            try data.write(to: url, options: [.atomic])
+        } catch {
+            return
+        }
+    }
+
+    private func deleteFile(at url: URL) {
+        guard fileManager.fileExists(atPath: url.path) else {
+            return
+        }
+
+        try? fileManager.removeItem(at: url)
+    }
+
+    private func sortByDate() {
+        recordings.sort { $0.date > $1.date }
+    }
+}
