@@ -2,118 +2,79 @@ import SwiftUI
 
 struct RecordingRowView: View {
     let entry: RecordingEntry
-    let isPlaying: Bool
-    let playbackProgress: TimeInterval
-    let playbackDuration: TimeInterval
+    let index: Int
     let isSelectable: Bool
     let isSelected: Bool
     let isTranscribing: Bool
-    let playAction: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 14) {
-                if isSelectable {
-                    SelectionIndicator(isSelected: isSelected)
-                        .frame(width: 24, height: 24)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                }
-
-                Button(action: playAction) {
-                    ZStack {
-                        Circle()
-                            .stroke(Color(.secondarySystemFill), lineWidth: 1)
-                            .frame(width: 28, height: 28)
-                            .opacity(isPlaying ? 1 : 0)
-
-                        Circle()
-                            .trim(from: 0, to: progressFraction)
-                            .stroke(Color(.label).opacity(0.7), style: StrokeStyle(lineWidth: 1, lineCap: .round))
-                            .rotationEffect(.degrees(-90))
-                            .frame(width: 28, height: 28)
-                            .opacity(isPlaying ? 1 : 0)
-
-                        Image(systemName: isPlaying ? "stop.fill" : "play.fill")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color(.label))
-                    }
-                }
-                .buttonStyle(.plain)
-                .frame(width: 30, height: 30)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.name)
-                        .font(.body)
-
-                    Text(relativeDateText(from: entry.date))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                Text(formattedDuration(displayDuration))
+        HStack(alignment: .top, spacing: 14) {
+            if isSelectable {
+                SelectionIndicator(isSelected: isSelected)
+                    .frame(width: 20, height: 20)
+                    .padding(.top, 3)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+            } else {
+                Text("\(index)")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tertiary)
                     .monospacedDigit()
+                    .frame(width: 20, alignment: .trailing)
+                    .padding(.top, 3)
             }
 
-            if isTranscribing {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .scaleEffect(0.7)
-                    Text("Transcribing…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(entry.name)
+                    .font(.body)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+
+                HStack(spacing: 4) {
+                    Text(relativeDateText(from: entry.date))
+                    Text("·")
+                    Text(formattedDuration(entry.duration))
                 }
-                .padding(.leading, 44)
-            } else if let transcript = entry.transcript, !transcript.isEmpty {
-                Text(transcript)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-                    .padding(.leading, 44)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                if isTranscribing {
+                    HStack(spacing: 5) {
+                        ProgressView().scaleEffect(0.65)
+                        Text("Transcribing…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 2)
+                } else if let transcript = entry.transcript, !transcript.isEmpty {
+                    Text(transcript)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(2)
+                        .padding(.top, 1)
+                }
             }
+
+            Spacer()
         }
-        .padding(.vertical, 18)
+        .padding(.vertical, 16)
         .padding(.horizontal, 16)
         .background(Color.white)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(color: Color.black.opacity(0.02), radius: 6, x: 0, y: 3)
+        .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
         .animation(.easeInOut(duration: 0.2), value: isSelectable)
-    }
-
-    private var displayDuration: TimeInterval {
-        if entry.duration > 0 {
-            return entry.duration
-        }
-        if isPlaying {
-            return max(playbackDuration, playbackProgress)
-        }
-        return 0
-    }
-
-    private var progressFraction: CGFloat {
-        guard playbackDuration > 0 else { return 0 }
-        return CGFloat(min(max(playbackProgress / playbackDuration, 0), 1))
     }
 
     private func formattedDuration(_ duration: TimeInterval) -> String {
         let totalSeconds = Int(duration.rounded())
         let minutes = totalSeconds / 60
         let seconds = totalSeconds % 60
-        return String(format: "%02d:%02d", minutes, seconds)
+        return String(format: "%d:%02d", minutes, seconds)
     }
 
     private func relativeDateText(from date: Date) -> String {
         let calendar = Calendar.current
-        if calendar.isDateInToday(date) {
-            return "Today"
-        }
-        if calendar.isDateInYesterday(date) {
-            return "Yesterday"
-        }
-
+        if calendar.isDateInToday(date) { return "Today" }
+        if calendar.isDateInYesterday(date) { return "Yesterday" }
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .none
@@ -129,7 +90,6 @@ private struct SelectionIndicator: View {
             Circle()
                 .stroke(Color(.separator), lineWidth: 1)
                 .frame(width: 20, height: 20)
-
             if isSelected {
                 Circle()
                     .fill(Color(.label))
@@ -138,4 +98,3 @@ private struct SelectionIndicator: View {
         }
     }
 }
-

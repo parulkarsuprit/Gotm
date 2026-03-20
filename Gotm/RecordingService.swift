@@ -104,6 +104,9 @@ final class RecordingService: NSObject {
     }
 
     func play(url: URL) {
+        print("▶️ [Play] Requested: \(url.lastPathComponent)")
+        print("▶️ [Play] File exists: \(FileManager.default.fileExists(atPath: url.path))")
+
         if isPlaying && playingURL == url {
             stopPlayback()
             return
@@ -126,7 +129,9 @@ final class RecordingService: NSObject {
             playbackDuration = player?.duration ?? 0
             isPlaying = true
             startPlaybackTimer()
+            print("▶️ [Play] Started, duration: \(playbackDuration)")
         } catch {
+            print("❌ [Play] Error: \(error)")
             stopPlayback()
         }
     }

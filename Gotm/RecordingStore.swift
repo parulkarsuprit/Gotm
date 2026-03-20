@@ -35,6 +35,14 @@ final class RecordingStore {
         }
 
         recordings[index].transcript = transcript
+        
+        // Auto-generate name from first 5 words of transcript
+        let words = transcript.split(separator: " ").prefix(5)
+        if words.count > 0 {
+            let generatedName = words.joined(separator: " ") + (words.count >= 5 ? "..." : "")
+            recordings[index].name = generatedName
+        }
+        
         save()
     }
 

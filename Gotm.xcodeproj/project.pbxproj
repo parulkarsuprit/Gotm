@@ -7,7 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		D9664D312F6CBA6B00E33B0D /* TranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9664D302F6CBA6A00E33B0D /* TranscriptionService.swift */; };
+		D9664DC22F6CC5F800E33B0D /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = D9664DC12F6CC5F800E33B0D /* SpeakerKit */; };
+		D9664DC42F6CC5F800E33B0D /* TTSKit in Frameworks */ = {isa = PBXBuildFile; productRef = D9664DC32F6CC5F800E33B0D /* TTSKit */; };
+		D9664DC62F6CC5F800E33B0D /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = D9664DC52F6CC5F800E33B0D /* WhisperKit */; };
+		D9664DC82F6CC5F800E33B0D /* whisperkit-cli in Frameworks */ = {isa = PBXBuildFile; productRef = D9664DC72F6CC5F800E33B0D /* whisperkit-cli */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -27,10 +30,20 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		D9664D382F6CBBF500E33B0D /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
-		D9664D302F6CBA6A00E33B0D /* TranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionService.swift; sourceTree = "<group>"; };
-		D9664D332F6CBBE100E33B0D /* whisper-v1.8.4-xcframework.zip */ = {isa = PBXFileReference; lastKnownFileType = archive.zip; name = "whisper-v1.8.4-xcframework.zip"; path = "../../Downloads/whisper-v1.8.4-xcframework.zip"; sourceTree = "<group>"; };
-		D9664D342F6CBBF500E33B0D /* whisper.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = whisper.xcframework; sourceTree = "<group>"; };
 		D9A3A4802F6C996300C1E485 /* Gotm.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Gotm.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D9A3A48D2F6C996400C1E485 /* GotmTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GotmTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D9A3A4972F6C996400C1E485 /* GotmUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GotmUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -59,6 +72,10 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D9664DC62F6CC5F800E33B0D /* WhisperKit in Frameworks */,
+				D9664DC42F6CC5F800E33B0D /* TTSKit in Frameworks */,
+				D9664DC82F6CC5F800E33B0D /* whisperkit-cli in Frameworks */,
+				D9664DC22F6CC5F800E33B0D /* SpeakerKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -79,24 +96,6 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		D9664D322F6CBBE100E33B0D /* Frameworks */ = {
-			isa = PBXGroup;
-			children = (
-				D9664D352F6CBBF500E33B0D /* build-apple */,
-				D9664D332F6CBBE100E33B0D /* whisper-v1.8.4-xcframework.zip */,
-			);
-			name = Frameworks;
-			sourceTree = "<group>";
-		};
-		D9664D352F6CBBF500E33B0D /* build-apple */ = {
-			isa = PBXGroup;
-			children = (
-				D9664D342F6CBBF500E33B0D /* whisper.xcframework */,
-			);
-			name = "build-apple";
-			path = "../../Downloads/build-apple";
-			sourceTree = "<group>";
-		};
 		D9A3A4772F6C996300C1E485 = {
 			isa = PBXGroup;
 			children = (
@@ -104,8 +103,6 @@
 				D9A3A4902F6C996400C1E485 /* GotmTests */,
 				D9A3A49A2F6C996400C1E485 /* GotmUITests */,
 				D9A3A4812F6C996300C1E485 /* Products */,
-				D9664D302F6CBA6A00E33B0D /* TranscriptionService.swift */,
-				D9664D322F6CBBE100E33B0D /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -129,6 +126,7 @@
 				D9A3A47C2F6C996300C1E485 /* Sources */,
 				D9A3A47D2F6C996300C1E485 /* Frameworks */,
 				D9A3A47E2F6C996300C1E485 /* Resources */,
+				D9664D382F6CBBF500E33B0D /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -139,6 +137,10 @@
 			);
 			name = Gotm;
 			packageProductDependencies = (
+				D9664DC12F6CC5F800E33B0D /* SpeakerKit */,
+				D9664DC32F6CC5F800E33B0D /* TTSKit */,
+				D9664DC52F6CC5F800E33B0D /* WhisperKit */,
+				D9664DC72F6CC5F800E33B0D /* whisperkit-cli */,
 			);
 			productName = Gotm;
 			productReference = D9A3A4802F6C996300C1E485 /* Gotm.app */;
@@ -222,6 +224,9 @@
 			);
 			mainGroup = D9A3A4772F6C996300C1E485;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				D9664DC02F6CC5F800E33B0D /* XCRemoteSwiftPackageReference "WhisperKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D9A3A4812F6C996300C1E485 /* Products */;
 			projectDirPath = "";
@@ -263,7 +268,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				D9664D312F6CBA6B00E33B0D /* TranscriptionService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -645,6 +649,40 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		D9664DC02F6CC5F800E33B0D /* XCRemoteSwiftPackageReference "WhisperKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/WhisperKit";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		D9664DC12F6CC5F800E33B0D /* SpeakerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D9664DC02F6CC5F800E33B0D /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			productName = SpeakerKit;
+		};
+		D9664DC32F6CC5F800E33B0D /* TTSKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D9664DC02F6CC5F800E33B0D /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			productName = TTSKit;
+		};
+		D9664DC52F6CC5F800E33B0D /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D9664DC02F6CC5F800E33B0D /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			productName = WhisperKit;
+		};
+		D9664DC72F6CC5F800E33B0D /* whisperkit-cli */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D9664DC02F6CC5F800E33B0D /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			productName = "whisperkit-cli";
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = D9A3A4782F6C996300C1E485 /* Project object */;
 }

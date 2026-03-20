@@ -7,6 +7,7 @@ struct VoiceRecorderApp: App {
             ContentView()
                 .task {
                     RecordingService.shared.prewarmAudioSession()
+                    await TranscriptionService.shared.warmUp()
                 }
         }
     }
