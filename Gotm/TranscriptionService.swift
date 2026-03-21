@@ -15,7 +15,7 @@ final class TranscriptionService {
     func warmUp() async {
         guard whisperKit == nil else { return }
         do {
-            whisperKit = try await WhisperKit(model: "base.en")
+            whisperKit = try await WhisperKit(model: "small.en")
             print("✅ [WhisperKit] Model loaded and ready")
         } catch {
             print("❌ [WhisperKit] Warm-up failed: \(error)")
@@ -25,12 +25,12 @@ final class TranscriptionService {
     func transcribe(fileURL: URL) async throws -> String {
         print("🎯 [WhisperKit] Starting transcription: \(fileURL.lastPathComponent)")
 
-        let kit: WhisperKit
+        var kit: WhisperKit
         if let existing = whisperKit {
             kit = existing
         } else {
             print("⏳ [WhisperKit] Model not ready yet, loading now...")
-            let loaded = try await WhisperKit(model: "base.en")
+            let loaded = try await WhisperKit(model: "small.en")
             whisperKit = loaded
             kit = loaded
         }

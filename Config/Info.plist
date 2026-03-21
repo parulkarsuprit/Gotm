@@ -33,6 +33,10 @@
     </array>
     <key>NSMicrophoneUsageDescription</key>
     <string>This app needs microphone access to record voice memos.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Take photos to attach to your notes.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Attach photos and videos from your library to your notes.</string>
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>

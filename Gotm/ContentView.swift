@@ -1,6 +1,8 @@
 import AVFoundation
+import PhotosUI
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @State private var store = RecordingStore()
@@ -13,6 +15,13 @@ struct ContentView: View {
     @State private var selectionMode = false
     @State private var selectedIDs: Set<UUID> = []
     @State private var transcribingIDs: Set<UUID> = []
+    @State private var textInput: String = ""
+    @FocusState private var isTextFieldFocused: Bool
+    @State private var showPhotoPicker = false
+    @State private var showFileImporter = false
+    @State private var showCamera = false
+    @State private var photoPickerItem: PhotosPickerItem? = nil
+    @State private var showAttachmentMenu = false
 
     var body: some View {
         let isRecordingUI = isShowingRecordingUI || recordingService.isRecording
@@ -28,21 +37,49 @@ struct ContentView: View {
                     endPoint: .bottomTrailing
                 )
                 .ignoresSafeArea()
+                .onTapGesture { isTextFieldFocused = false }
 
                 if isRecordingUI {
                     RecordingView(level: recordingService.recordingLevel)
                 } else {
                     recordingsListView
                 }
+
+                // Attachment menu panel — floats above bottom bar, never overlaps it
+                if showAttachmentMenu {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.easeOut(duration: 0.15)) { showAttachmentMenu = false }
+                        }
+
+                    VStack(alignment: .leading, spacing: 0) {
+                        attachmentMenuButton("Photos & Videos", icon: "photo.on.rectangle") {
+                            showPhotoPicker = true
+                        }
+                        Divider().padding(.leading, 48)
+                        attachmentMenuButton("Files & Documents", icon: "folder") {
+                            showFileImporter = true
+                        }
+                        Divider().padding(.leading, 48)
+                        attachmentMenuButton("Camera", icon: "camera") {
+                            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                                showCamera = true
+                            }
+                        }
+                    }
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .frame(width: 230)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .padding(.leading, 16)
+                    .padding(.bottom, 2)
+                    .transition(.scale(scale: 0.85, anchor: .bottomLeading).combined(with: .opacity))
+                }
             }
-            .navigationTitle(isRecordingUI ? "" : "Gotm")
+            .navigationTitle("Gotm")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if isRecordingUI {
-                    ToolbarItem(placement: .principal) {
-                        RecordingTimerView(elapsedTime: recordingService.elapsedTime)
-                    }
-                }
 
                 if selectionMode {
                     ToolbarItem(placement: .topBarLeading) {
@@ -76,8 +113,61 @@ struct ContentView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) {
-                RecordButton(isRecording: isRecordingUI, action: primaryRecordAction)
-                    .padding(.vertical, 12)
+                HStack(alignment: .center, spacing: 10) {
+                    // Left slot: + button (normal) or pulsing red dot (recording)
+                    if isRecordingUI {
+                        RecordingDotView()
+                            .frame(width: 32, height: 32)
+                    } else {
+                        Button {
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
+                                showAttachmentMenu.toggle()
+                            }
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundStyle(Color(.label))
+                                .frame(width: 32, height: 32)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    // Center slot: timer (recording) or text field (normal)
+                    if isRecordingUI {
+                        RecordingTimerView(elapsedTime: recordingService.elapsedTime)
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        TextField("Write a note...", text: $textInput, axis: .vertical)
+                            .lineLimit(1...4)
+                            .focused($isTextFieldFocused)
+                            .frame(maxWidth: .infinity)
+                            .onSubmit { submitTextEntry() }
+
+                        if !textInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Button(action: submitTextEntry) {
+                                Image(systemName: "arrow.up.circle.fill")
+                                    .font(.system(size: 22))
+                                    .foregroundStyle(Color(.label))
+                                    .frame(width: 32, height: 32)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .transition(.scale(scale: 0.8).combined(with: .opacity))
+                        }
+                    }
+
+                    // Right slot: record button always
+                    RecordButton(isRecording: isRecordingUI, action: primaryRecordAction, size: 48)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(.ultraThinMaterial, in: Capsule())
+                .shadow(color: .black.opacity(0.08), radius: 20, x: 0, y: 4)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+                .animation(.easeInOut(duration: 0.18), value: isRecordingUI)
+                .animation(.easeInOut(duration: 0.15), value: textInput.isEmpty)
             }
             .alert("Microphone Access Needed", isPresented: $showingPermissionAlert) {
                 Button("Open Settings") {
@@ -97,6 +187,30 @@ struct ContentView: View {
             .sheet(item: $viewingEntry) { entry in
                 RecordingDetailSheet(entry: entry)
             }
+            .sheet(isPresented: $showCamera) {
+                CameraPickerView { image in
+                    Task { await saveImageEntry(image) }
+                }
+            }
+            .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItem, matching: .any(of: [.images, .videos]))
+            .onChange(of: photoPickerItem) { _, newItem in
+                guard let item = newItem else { return }
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        await saveImageEntry(image)
+                    }
+                    photoPickerItem = nil
+                }
+            }
+            .fileImporter(
+                isPresented: $showFileImporter,
+                allowedContentTypes: [.pdf, .plainText, .image, .data],
+                allowsMultipleSelection: false
+            ) { result in
+                Task { await handleFileImport(result) }
+            }
+
         }
         .preferredColorScheme(.light)
     }
@@ -110,7 +224,7 @@ struct ContentView: View {
                     ForEach(Array(store.recordings.enumerated()), id: \.element.id) { index, entry in
                         RecordingRowView(
                             entry: entry,
-                            index: index + 1,
+                            index: store.recordings.count - index,
                             isSelectable: selectionMode,
                             isSelected: selectedIDs.contains(entry.id),
                             isTranscribing: transcribingIDs.contains(entry.id)
@@ -120,7 +234,9 @@ struct ContentView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                         .onTapGesture {
-                            if selectionMode {
+                            if isTextFieldFocused {
+                                isTextFieldFocused = false
+                            } else if selectionMode {
                                 toggleSelection(for: entry.id)
                             } else {
                                 viewingEntry = entry
@@ -134,24 +250,17 @@ struct ContentView: View {
                                     .accessibilityLabel("Delete")
                             }
                             .tint(.red)
-                            
-                            Button {
-                                editingEntry = entry
-                            } label: {
-                                Image(systemName: "pencil")
-                                    .accessibilityLabel("Rename")
-                            }
-                            .tint(.blue)
                         }
                         .onLongPressGesture(minimumDuration: 0.25) {
                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             selectionMode = true
                             toggleSelection(for: entry.id)
                         }
-                                            }
+                    }
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
+                .scrollDismissesKeyboard(.immediately)
             }
         }
     }
@@ -164,6 +273,7 @@ struct ContentView: View {
     }
 
     private func primaryRecordAction() {
+        showAttachmentMenu = false
         if recordingService.isRecording || isShowingRecordingUI {
             stopRecording()
             return
@@ -204,6 +314,49 @@ struct ContentView: View {
         }
     }
 
+    private func saveImageEntry(_ image: UIImage) async {
+        guard let data = image.jpegData(compressionQuality: 0.85) else { return }
+        do {
+            let url = try RecordingStore.saveMedia(data, fileExtension: "jpg")
+            let entry = RecordingEntry(id: UUID(), name: "Photo", date: Date(), duration: 0, fileURL: nil, transcript: nil, mediaURL: url, mediaType: .image)
+            store.add(entry)
+        } catch {
+            print("❌ [Media] Failed to save image: \(error)")
+        }
+    }
+
+    private func handleFileImport(_ result: Result<[URL], Error>) async {
+        do {
+            let urls = try result.get()
+            guard let url = urls.first else { return }
+            guard url.startAccessingSecurityScopedResource() else { return }
+            defer { url.stopAccessingSecurityScopedResource() }
+            let data = try Data(contentsOf: url)
+            let ext = url.pathExtension.isEmpty ? "bin" : url.pathExtension
+            let savedURL = try RecordingStore.saveMedia(data, fileExtension: ext)
+            let name = url.deletingPathExtension().lastPathComponent
+            let entry = RecordingEntry(id: UUID(), name: name, date: Date(), duration: 0, fileURL: nil, transcript: nil, mediaURL: savedURL, mediaType: .file)
+            store.add(entry)
+        } catch {
+            print("❌ [File] Import failed: \(error)")
+        }
+    }
+
+    private func submitTextEntry() {
+        let text = textInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        textInput = ""
+        isTextFieldFocused = false
+
+        let entry = RecordingEntry(id: UUID(), name: "Note", date: Date(), duration: 0, fileURL: nil, transcript: text)
+        store.add(entry)
+
+        Task {
+            let title = await TitleService.shared.generateTitle(for: text)
+            store.updateName(for: entry.id, name: title)
+        }
+    }
+
     private func stopRecording() {
         isShowingRecordingUI = false
         if let entry = recordingService.stopRecording() {
@@ -211,20 +364,51 @@ struct ContentView: View {
             transcribingIDs.insert(entry.id)
             Task {
                 do {
-                    print("🎤 [Transcription] Starting transcription for: \(entry.fileURL.lastPathComponent)")
-                    let transcript = try await TranscriptionService.shared.transcribe(fileURL: entry.fileURL)
-                    print("✅ [Transcription] Success! Text: \(transcript.prefix(100))...")
+                    guard let fileURL = entry.fileURL else {
+                        store.delete(entry)
+                        transcribingIDs.remove(entry.id)
+                        return
+                    }
+                    let transcript = try await TranscriptionService.shared.transcribe(fileURL: fileURL)
+                    guard Self.isValidTranscript(transcript) else {
+                        print("🚫 [Transcription] Discarded — noise or no speech: \(transcript.prefix(60))")
+                        store.delete(entry)
+                        transcribingIDs.remove(entry.id)
+                        return
+                    }
                     store.updateTranscript(for: entry.id, transcript: transcript)
                     let title = await TitleService.shared.generateTitle(for: transcript)
                     store.updateName(for: entry.id, name: title)
-                    print("💾 [Transcription] Updated store with transcript and title: \(title)")
                 } catch {
-                    print("❌ [Transcription] Error: \(error)")
-                    print("❌ [Transcription] Error details: \(error.localizedDescription)")
+                    print("❌ [Transcription] Error: \(error.localizedDescription)")
+                    store.delete(entry)
                 }
                 transcribingIDs.remove(entry.id)
             }
         }
+    }
+
+    private static func isValidTranscript(_ text: String) -> Bool {
+        var cleaned = text
+
+        // Strip WhisperKit noise annotations: [Music], (wind), [BLANK_AUDIO], etc.
+        var result = ""
+        var depth = 0
+        for char in cleaned {
+            if char == "[" || char == "(" { depth += 1 }
+            else if char == "]" || char == ")" { depth -= 1 }
+            else if depth == 0 { result.append(char) }
+        }
+        cleaned = result.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Known single-word hallucinations WhisperKit produces on silence
+        let hallucinations: Set<String> = ["you", "thank you", "thanks", "bye", "yes", "no", "okay", "ok", "um", "uh"]
+        let lower = cleaned.lowercased().trimmingCharacters(in: .punctuationCharacters)
+        if hallucinations.contains(lower) { return false }
+
+        // Require at least 2 words with more than 1 character each
+        let words = cleaned.split(separator: " ").filter { $0.count > 1 }
+        return words.count >= 2
     }
 
     private func toggleSelection(for id: UUID) {
@@ -243,30 +427,46 @@ struct ContentView: View {
         selectedIDs.removeAll()
         selectionMode = false
     }
+
+    @ViewBuilder
+    private func attachmentMenuButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.15)) { showAttachmentMenu = false }
+            action()
+        } label: {
+            Label(title, systemImage: icon)
+                .font(.body)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
 }
 
+
+private struct RecordingDotView: View {
+    @State private var isPulsing = false
+
+    var body: some View {
+        Circle()
+            .fill(Color.red)
+            .frame(width: 10, height: 10)
+            .shadow(color: Color.red.opacity(0.5), radius: isPulsing ? 8 : 3)
+            .scaleEffect(isPulsing ? 1.4 : 0.9)
+            .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: isPulsing)
+            .onAppear { isPulsing = true }
+    }
+}
 
 private struct RecordingTimerView: View {
     let elapsedTime: TimeInterval
 
-    @State private var isPulsing = false
-
     var body: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(Color.red)
-                .frame(width: 6, height: 6)
-                .shadow(color: Color.red.opacity(0.45), radius: 8)
-                .scaleEffect(isPulsing ? 1.5 : 0.8)
-                .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: isPulsing)
-
-            Text(formattedElapsedTime(elapsedTime))
-                .font(.body)
-                .monospacedDigit()
-        }
-        .onAppear {
-            isPulsing = true
-        }
+        Text(formattedElapsedTime(elapsedTime))
+            .font(.body)
+            .monospacedDigit()
     }
 
     private func formattedElapsedTime(_ duration: TimeInterval) -> String {
@@ -329,59 +529,84 @@ private struct RecordingDetailSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    // Playback control
-                    VStack(spacing: 12) {
-                        Button {
-                            recordingService.play(url: entry.fileURL)
-                        } label: {
-                            ZStack {
-                                Circle()
-                                    .fill(Color(.label))
-                                    .frame(width: 56, height: 56)
-                                Image(systemName: isPlaying ? "stop.fill" : "play.fill")
-                                    .font(.system(size: 20, weight: .semibold))
-                                    .foregroundStyle(Color(.systemBackground))
-                                    .offset(x: isPlaying ? 0 : 2)
-                            }
-                        }
-                        .buttonStyle(.plain)
-
-                        if isPlaying {
-                            GeometryReader { geo in
-                                ZStack(alignment: .leading) {
-                                    Capsule()
-                                        .fill(Color(.systemFill))
-                                        .frame(height: 3)
-                                    Capsule()
+                    // Playback control (audio entries only)
+                    if !entry.isTextEntry, let fileURL = entry.fileURL {
+                        VStack(spacing: 12) {
+                            Button {
+                                recordingService.play(url: fileURL)
+                            } label: {
+                                ZStack {
+                                    Circle()
                                         .fill(Color(.label))
-                                        .frame(width: geo.size.width * progressFraction, height: 3)
+                                        .frame(width: 56, height: 56)
+                                    Image(systemName: isPlaying ? "stop.fill" : "play.fill")
+                                        .font(.system(size: 20, weight: .semibold))
+                                        .foregroundStyle(Color(.systemBackground))
+                                        .offset(x: isPlaying ? 0 : 2)
                                 }
                             }
-                            .frame(height: 3)
-                        }
+                            .buttonStyle(.plain)
 
-                        HStack {
-                            Text(isPlaying ? formattedDuration(recordingService.playbackProgress) : formattedDuration(entry.duration))
-                            Spacer()
-                            Text(formattedDate(entry.date))
+                            if isPlaying {
+                                GeometryReader { geo in
+                                    ZStack(alignment: .leading) {
+                                        Capsule()
+                                            .fill(Color(.systemFill))
+                                            .frame(height: 3)
+                                        Capsule()
+                                            .fill(Color(.label))
+                                            .frame(width: geo.size.width * progressFraction, height: 3)
+                                    }
+                                }
+                                .frame(height: 3)
+                            }
+
+                            HStack {
+                                Text(isPlaying ? formattedDuration(recordingService.playbackProgress) : formattedDuration(entry.duration))
+                                Spacer()
+                                Text(formattedDate(entry.date))
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .padding()
+                        .background(Color(.secondarySystemBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
-                    .padding()
-                    .background(Color(.secondarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                    // Media attachment
+                    if let mediaURL = entry.mediaURL {
+                        if entry.mediaType == .image, let uiImage = UIImage(contentsOfFile: mediaURL.path) {
+                            Image(uiImage: uiImage)
+                                .resizable()
+                                .scaledToFit()
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        } else if entry.mediaType == .file {
+                            HStack(spacing: 12) {
+                                Image(systemName: "doc.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(.secondary)
+                                Text(mediaURL.lastPathComponent)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.primary)
+                            }
+                            .padding()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(.secondarySystemBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                    }
 
                     // Full transcription
                     if let transcript = entry.transcript, !transcript.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Transcription")
+                            Text(entry.isAudioEntry ? "Transcription" : "Note")
                                 .font(.headline)
                             Text(transcript)
                                 .font(.body)
                                 .textSelection(.enabled)
                         }
-                    } else {
+                    } else if entry.isAudioEntry {
                         ContentUnavailableView(
                             "No Transcription",
                             systemImage: "text.bubble",

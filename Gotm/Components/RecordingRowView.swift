@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct RecordingRowView: View {
     let entry: RecordingEntry
@@ -31,8 +32,10 @@ struct RecordingRowView: View {
 
                 HStack(spacing: 4) {
                     Text(relativeDateText(from: entry.date))
-                    Text("·")
-                    Text(formattedDuration(entry.duration))
+                    if !entry.isTextEntry {
+                        Text("·")
+                        Text(formattedDuration(entry.duration))
+                    }
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -55,6 +58,20 @@ struct RecordingRowView: View {
             }
 
             Spacer()
+
+            if let mediaURL = entry.mediaURL, entry.mediaType == .image,
+               let uiImage = UIImage(contentsOfFile: mediaURL.path) {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 44, height: 44)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            } else if entry.mediaType == .file {
+                Image(systemName: "doc.fill")
+                    .font(.system(size: 22))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44)
+            }
         }
         .padding(.vertical, 16)
         .padding(.horizontal, 16)

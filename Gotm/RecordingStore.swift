@@ -52,8 +52,24 @@ final class RecordingStore {
         }
 
         let removed = recordings.remove(at: index)
-        deleteFile(at: removed.fileURL)
+        if let url = removed.fileURL { deleteFile(at: url) }
+        if let url = removed.mediaURL { deleteFile(at: url) }
         save()
+    }
+
+    static func mediaDirectory(fileManager: FileManager = .default) -> URL {
+        let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return documents.appending(path: "Media", directoryHint: .isDirectory)
+    }
+
+    static func saveMedia(_ data: Data, fileExtension ext: String, fileManager: FileManager = .default) throws -> URL {
+        let dir = mediaDirectory(fileManager: fileManager)
+        if !fileManager.fileExists(atPath: dir.path) {
+            try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        let url = dir.appending(path: UUID().uuidString + "." + ext)
+        try data.write(to: url, options: .atomic)
+        return url
     }
 
     static func recordingsDirectory(fileManager: FileManager = .default) -> URL {
@@ -85,8 +101,8 @@ final class RecordingStore {
         do {
             let decoded = try JSONDecoder().decode([RecordingEntry].self, from: data)
             let normalized = decoded.map { entry in
-                guard entry.duration <= 0 else { return entry }
-                let assetDuration = AVURLAsset(url: entry.fileURL).duration.seconds
+                guard entry.duration <= 0, let url = entry.fileURL else { return entry }
+                let assetDuration = AVURLAsset(url: url).duration.seconds
                 if assetDuration.isFinite && assetDuration > 0 {
                     return RecordingEntry(
                         id: entry.id,
