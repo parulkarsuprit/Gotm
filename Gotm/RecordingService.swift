@@ -79,7 +79,7 @@ final class RecordingService: NSObject {
         startRecordingTimer()
     }
 
-    func stopRecording() -> RecordingEntry? {
+    func stopRecording() -> (url: URL, duration: TimeInterval)? {
         guard let recorder, let fileURL = currentRecordingURL else {
             return nil
         }
@@ -89,8 +89,6 @@ final class RecordingService: NSObject {
 
         let assetDuration = AVURLAsset(url: fileURL).duration.seconds
         let duration = assetDuration.isFinite && assetDuration > 0 ? assetDuration : recorder.currentTime
-        let date = Date()
-        let name = defaultRecordingName(for: date)
 
         self.recorder = nil
         currentRecordingURL = nil
@@ -100,7 +98,7 @@ final class RecordingService: NSObject {
 
         deactivateAudioSessionIfPossible()
 
-        return RecordingEntry(id: UUID(), name: name, date: date, duration: duration, fileURL: fileURL, transcript: nil)
+        return (url: fileURL, duration: duration)
     }
 
     func play(url: URL) {
@@ -193,12 +191,7 @@ final class RecordingService: NSObject {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
-    private func defaultRecordingName(for date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        formatter.dateStyle = .none
-        return "Recording \(formatter.string(from: date))"
-    }
+
 }
 
 extension RecordingService: AVAudioPlayerDelegate {

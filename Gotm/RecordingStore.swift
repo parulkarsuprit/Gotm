@@ -21,39 +21,38 @@ final class RecordingStore {
     }
 
     func updateName(for entryID: UUID, name: String) {
-        guard let index = recordings.firstIndex(where: { $0.id == entryID }) else {
-            return
-        }
-
+        guard let index = recordings.firstIndex(where: { $0.id == entryID }) else { return }
         recordings[index].name = name
+        recordings[index].isTitleLoading = false
         save()
     }
 
     func updateTranscript(for entryID: UUID, transcript: String) {
-        guard let index = recordings.firstIndex(where: { $0.id == entryID }) else {
-            return
-        }
-
+        guard let index = recordings.firstIndex(where: { $0.id == entryID }) else { return }
         recordings[index].transcript = transcript
-        
-        // Auto-generate name from first 5 words of transcript
-        let words = transcript.split(separator: " ").prefix(5)
-        if words.count > 0 {
-            let generatedName = words.joined(separator: " ") + (words.count >= 5 ? "..." : "")
-            recordings[index].name = generatedName
-        }
-        
+        save()
+    }
+
+    func updateAudioTitle(for entryID: UUID, title: String) {
+        guard let index = recordings.firstIndex(where: { $0.id == entryID }) else { return }
+        recordings[index].audioTitle = title
+        save()
+    }
+
+    func updateAttachment(for entryID: UUID, attachmentID: UUID, name: String? = nil, transcript: String? = nil) {
+        guard let eIdx = recordings.firstIndex(where: { $0.id == entryID }),
+              let aIdx = recordings[eIdx].attachments.firstIndex(where: { $0.id == attachmentID })
+        else { return }
+        if let name { recordings[eIdx].attachments[aIdx].name = name }
+        if let transcript { recordings[eIdx].attachments[aIdx].transcript = transcript }
         save()
     }
 
     func delete(_ entry: RecordingEntry) {
-        guard let index = recordings.firstIndex(of: entry) else {
-            return
-        }
-
+        guard let index = recordings.firstIndex(of: entry) else { return }
         let removed = recordings.remove(at: index)
-        if let url = removed.fileURL { deleteFile(at: url) }
-        if let url = removed.mediaURL { deleteFile(at: url) }
+        if let url = removed.audioURL { deleteFile(at: url) }
+        for attachment in removed.attachments { deleteFile(at: attachment.url) }
         save()
     }
 
@@ -100,20 +99,22 @@ final class RecordingStore {
 
         do {
             let decoded = try JSONDecoder().decode([RecordingEntry].self, from: data)
-            let normalized = decoded.map { entry in
-                guard entry.duration <= 0, let url = entry.fileURL else { return entry }
-                let assetDuration = AVURLAsset(url: url).duration.seconds
-                if assetDuration.isFinite && assetDuration > 0 {
-                    return RecordingEntry(
-                        id: entry.id,
-                        name: entry.name,
-                        date: entry.date,
-                        duration: assetDuration,
-                        fileURL: entry.fileURL,
-                        transcript: entry.transcript
-                    )
-                }
-                return entry
+            let normalized = decoded.map { entry -> RecordingEntry in
+                guard entry.duration <= 0, let audioURL = entry.audioURL else { return entry }
+                let assetDuration = AVURLAsset(url: audioURL).duration.seconds
+                guard assetDuration.isFinite && assetDuration > 0 else { return entry }
+                return RecordingEntry(
+                    id: entry.id,
+                    name: entry.name,
+                    isTitleLoading: entry.isTitleLoading,
+                    date: entry.date,
+                    duration: assetDuration,
+                    audioURL: entry.audioURL,
+                    audioTitle: entry.audioTitle,
+                    transcript: entry.transcript,
+                    text: entry.text,
+                    attachments: entry.attachments
+                )
             }
             recordings = normalized.sorted { $0.date > $1.date }
         } catch {
@@ -124,7 +125,6 @@ final class RecordingStore {
     private func save() {
         ensureRecordingsDirectoryExists()
         let url = recordingsFileURL()
-
         do {
             let data = try JSONEncoder().encode(recordings)
             try data.write(to: url, options: [.atomic])
@@ -134,10 +134,7 @@ final class RecordingStore {
     }
 
     private func deleteFile(at url: URL) {
-        guard fileManager.fileExists(atPath: url.path) else {
-            return
-        }
-
+        guard fileManager.fileExists(atPath: url.path) else { return }
         try? fileManager.removeItem(at: url)
     }
 

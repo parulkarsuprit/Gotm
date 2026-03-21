@@ -25,16 +25,28 @@ struct RecordingRowView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(entry.name)
-                    .font(.body)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
+                if entry.isTitleLoading {
+                    Text("Loading…")
+                        .font(.body.italic())
+                        .fontWeight(.medium)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text(entry.name)
+                        .font(.body)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+                }
 
                 HStack(spacing: 4) {
                     Text(relativeDateText(from: entry.date))
-                    if !entry.isTextEntry {
+                    if entry.hasAudio {
                         Text("·")
                         Text(formattedDuration(entry.duration))
+                    }
+                    // Show item count badge for mixed entries
+                    if entry.totalItemCount > 1 {
+                        entryTypeBadges
                     }
                 }
                 .font(.caption)
@@ -54,19 +66,26 @@ struct RecordingRowView: View {
                         .foregroundStyle(.tertiary)
                         .lineLimit(2)
                         .padding(.top, 1)
+                } else if let text = entry.text, !text.isEmpty {
+                    Text(text)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(2)
+                        .padding(.top, 1)
                 }
             }
 
             Spacer()
 
-            if let mediaURL = entry.mediaURL, entry.mediaType == .image,
-               let uiImage = UIImage(contentsOfFile: mediaURL.path) {
+            // Right thumbnail: first image or file icon or audio icon
+            if let firstImage = entry.imageAttachments.first,
+               let uiImage = UIImage(contentsOfFile: firstImage.url.path) {
                 Image(uiImage: uiImage)
                     .resizable()
                     .scaledToFill()
                     .frame(width: 44, height: 44)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            } else if entry.mediaType == .file {
+            } else if !entry.fileAttachments.isEmpty {
                 Image(systemName: "doc.fill")
                     .font(.system(size: 22))
                     .foregroundStyle(.secondary)
@@ -79,6 +98,12 @@ struct RecordingRowView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
         .animation(.easeInOut(duration: 0.2), value: isSelectable)
+    }
+
+    @ViewBuilder
+    private var entryTypeBadges: some View {
+        let count = entry.totalItemCount
+        Text("· \(count) item\(count == 1 ? "" : "s")")
     }
 
     private func formattedDuration(_ duration: TimeInterval) -> String {
