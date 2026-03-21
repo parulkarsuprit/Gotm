@@ -3,7 +3,7 @@ import FoundationModels
 
 @Generable
 struct TitleOutput {
-    @Guide(description: "A short title in title case, maximum 6 words, no punctuation at the end")
+    @Guide(description: "A short title in title case, maximum 15 words, no punctuation at the end")
     var title: String
 }
 
@@ -16,13 +16,13 @@ final class TitleService {
     func generateTitle(for transcript: String) async -> String {
         let words = transcript.split(separator: " ")
         if words.count <= 8 {
-            return words.prefix(6).joined(separator: " ")
+            return words.prefix(15).joined(separator: " ")
         }
         return await runModel(
             instructions: """
-            You generate short, smart titles for voice note transcriptions.
+            You generate clear, descriptive titles for voice note transcriptions.
             Rules:
-            - Maximum 6 words
+            - Maximum 15 words
             - Capture the core idea or action
             - Use title case
             - No punctuation at the end
@@ -52,12 +52,12 @@ final class TitleService {
 
         return await runModel(
             instructions: """
-            You generate short, smart titles for combined voice note entries.
+            You generate clear, descriptive titles for combined voice note entries.
             Rules:
-            - Maximum 6 words total
+            - Maximum 15 words total
             - Use title case
             - No punctuation at the end
-            - If the recordings cover clearly different, unrelated topics, combine them as "Topic A + Topic B" (each part max 3 words)
+            - If the recordings cover clearly different, unrelated topics, combine them as "Topic A + Topic B" (each part max 7 words)
             - If the recordings share a common theme or are related, write one unified title that captures the theme
             """,
             prompt: "Title this combined voice note entry:\n\(numbered)",
@@ -93,6 +93,6 @@ final class TitleService {
 
     private func fallbackTitle(from transcript: String) -> String {
         let words = transcript.split(separator: " ")
-        return words.prefix(6).joined(separator: " ") + (words.count > 6 ? "…" : "")
+        return words.prefix(15).joined(separator: " ") + (words.count > 15 ? "…" : "")
     }
 }

@@ -27,6 +27,21 @@ enum TagType: String, Codable, CaseIterable {
         }
     }
 
+    var icon: String {
+        switch self {
+        case .action:    return "bolt.fill"
+        case .event:     return "calendar"
+        case .reminder:  return "bell.fill"
+        case .question:  return "questionmark.circle.fill"
+        case .idea:      return "lightbulb.fill"
+        case .decision:  return "checkmark.seal.fill"
+        case .person:    return "person.fill"
+        case .reference: return "doc.text.fill"
+        case .purchase:  return "cart.fill"
+        case .money:     return "dollarsign.circle.fill"
+        }
+    }
+
     /// Lower = shown first in the feed chips
     var feedPriority: Int {
         switch self {

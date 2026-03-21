@@ -271,8 +271,9 @@ struct ContentView: View {
                     .frame(height: 160)
                     .ignoresSafeArea(edges: .bottom)
                     .allowsHitTesting(false)
-                    .opacity(quickRecordState == .holding || quickRecordState == .locked ? 1 : 0)
+                    .opacity(quickRecordState == .holding || quickRecordState == .locked || showChips ? 1 : 0)
                     .animation(.easeInOut(duration: 0.25), value: quickRecordState)
+                    .animation(.easeInOut(duration: 0.25), value: showChips)
                 }
                 .animation(.spring(response: 0.35, dampingFraction: 0.8), value: showChips)
                 .animation(.easeInOut(duration: 0.18), value: isNormalRecording)
@@ -544,46 +545,37 @@ struct ContentView: View {
             if store.recordings.isEmpty {
                 emptyStateView
             } else {
-                List {
-                    ForEach(Array(store.recordings.enumerated()), id: \.element.id) { index, entry in
-                        RecordingRowView(
-                            entry: entry,
-                            index: store.recordings.count - index,
-                            isSelectable: selectionMode,
-                            isSelected: selectedIDs.contains(entry.id),
-                            isTranscribing: transcribingIDs.contains(entry.id)
-                        )
-                        .contentShape(Rectangle())
-                        .listRowInsets(EdgeInsets(top: 6, leading: 18, bottom: 6, trailing: 18))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                        .onTapGesture {
-                            if isTextFieldFocused {
-                                isTextFieldFocused = false
-                            } else if selectionMode {
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(Array(store.recordings.enumerated()), id: \.element.id) { index, entry in
+                            RecordingRowView(
+                                entry: entry,
+                                index: store.recordings.count - index,
+                                isSelectable: selectionMode,
+                                isSelected: selectedIDs.contains(entry.id),
+                                isTranscribing: transcribingIDs.contains(entry.id)
+                            )
+                            .swipeToDelete(perform: { store.delete(entry) })
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                if isTextFieldFocused {
+                                    isTextFieldFocused = false
+                                } else if selectionMode {
+                                    toggleSelection(for: entry.id)
+                                } else {
+                                    viewingEntry = entry
+                                }
+                            }
+                            .onLongPressGesture(minimumDuration: 0.25) {
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                selectionMode = true
                                 toggleSelection(for: entry.id)
-                            } else {
-                                viewingEntry = entry
                             }
-                        }
-                        .swipeActions(allowsFullSwipe: false) {
-                            Button {
-                                store.delete(entry)
-                            } label: {
-                                Image(systemName: "trash")
-                                    .accessibilityLabel("Delete")
-                            }
-                            .tint(.red)
-                        }
-                        .onLongPressGesture(minimumDuration: 0.25) {
-                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            selectionMode = true
-                            toggleSelection(for: entry.id)
                         }
                     }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 6)
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
                 .scrollDismissesKeyboard(.immediately)
             }
         }
@@ -675,6 +667,9 @@ struct ContentView: View {
                                 Task {
                                     let title = await TitleService.shared.generateEntryTitle(for: allTranscripts)
                                     store.updateName(for: entryID, name: title)
+                                    let tagSource = allTranscripts.joined(separator: " ")
+                                    let tags = await TagService.shared.generateTags(for: tagSource)
+                                    store.updateTags(for: entryID, tags: tags)
                                 }
                             }
                         }
@@ -794,6 +789,8 @@ struct ContentView: View {
                 let title = await TitleService.shared.generateTitle(for: transcript)
                 store.updateName(for: entry.id, name: title)
                 store.updateAudioTitle(for: entry.id, title: title)
+                let tags = await TagService.shared.generateTags(for: transcript)
+                store.updateTags(for: entry.id, tags: tags)
             } catch {
                 print("❌ [QuickRecord] Transcription error: \(error.localizedDescription)")
                 try? FileManager.default.removeItem(at: fileURL)
@@ -1095,6 +1092,7 @@ private struct RecordingDetailSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var recordingService = RecordingService.shared
+    @State private var selectedTag: EntryTag? = nil
 
     var body: some View {
         NavigationStack {
@@ -1152,10 +1150,15 @@ private struct RecordingDetailSheet: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Note")
                                 .font(.headline)
-                            Text(text)
+                            highlightedText(text, tag: selectedTag)
                                 .font(.body)
                                 .textSelection(.enabled)
                         }
+                    }
+
+                    // Tags
+                    if !entry.prioritisedTags.isEmpty {
+                        tagsSection
                     }
                 }
                 .padding()
@@ -1223,7 +1226,7 @@ private struct RecordingDetailSheet: View {
             }
 
             if let transcript, !transcript.isEmpty {
-                Text(transcript)
+                highlightedText(transcript, tag: selectedTag)
                     .font(.body)
                     .foregroundStyle(.primary)
                     .textSelection(.enabled)
@@ -1236,6 +1239,45 @@ private struct RecordingDetailSheet: View {
         .padding()
         .background(Color(.secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    // MARK: - Tags section
+
+    private var tagsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            FlowLayout(spacing: 8) {
+                ForEach(entry.prioritisedTags) { tag in
+                    TagChip(tag: tag, isSelected: selectedTag?.id == tag.id)
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedTag = selectedTag?.id == tag.id ? nil : tag
+                            }
+                        }
+                }
+            }
+
+            if let selected = selectedTag {
+                if selected.triggerText == nil {
+                    Text("AI detected this from the overall context of your note.")
+                        .font(.caption)
+                        .italic()
+                        .foregroundStyle(.secondary)
+                        .transition(.opacity.combined(with: .offset(y: 4)))
+                }
+            }
+        }
+    }
+
+    // MARK: - Transcript highlighting
+
+    private func highlightedText(_ text: String, tag: EntryTag?) -> Text {
+        guard let trigger = tag?.triggerText else { return Text(text) }
+        var attributed = AttributedString(text)
+        guard let range = attributed.range(of: trigger, options: .caseInsensitive) else {
+            return Text(text)
+        }
+        attributed[range].backgroundColor = TagChip(tag: tag!).chipColor.opacity(0.28)
+        return Text(attributed)
     }
 
     private func progressFraction(for url: URL) -> CGFloat {
@@ -1253,5 +1295,76 @@ private struct RecordingDetailSheet: View {
 
     private func formatDur(_ d: TimeInterval) -> String {
         String(format: "%d:%02d", Int(d) / 60, Int(d) % 60)
+    }
+}
+
+// MARK: - Swipe to reveal delete
+
+private struct SwipeToDelete: ViewModifier {
+    let onDelete: () -> Void
+    @State private var offset: CGFloat = 0
+    @GestureState private var gestureStartOffset: CGFloat? = nil
+
+    private let revealDistance: CGFloat = 80
+    private let triggerThreshold: CGFloat = 44
+    private let buttonSize: CGFloat = 52
+
+    private var progress: CGFloat {
+        min(abs(offset) / revealDistance, 1.0)
+    }
+
+    func body(content: Content) -> some View {
+        ZStack(alignment: .trailing) {
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { offset = 0 }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { onDelete() }
+            } label: {
+                Image(systemName: "trash.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: buttonSize, height: buttonSize)
+                    .background(Circle().fill(Color.red))
+            }
+            .scaleEffect(progress)
+            .opacity(progress)
+            .padding(.trailing, (revealDistance - buttonSize) / 2)
+            .allowsHitTesting(progress > 0.5)
+
+            content
+                .offset(x: offset)
+                .gesture(
+                    DragGesture(minimumDistance: 15)
+                        .updating($gestureStartOffset) { _, state, _ in
+                            if state == nil { state = offset }
+                        }
+                        .onChanged { value in
+                            let base = gestureStartOffset ?? offset
+                            let proposed = base + value.translation.width
+                            // clamp between fully closed (0) and fully open (-revealDistance)
+                            // rubber-band if over-pulling past open
+                            if proposed >= 0 {
+                                offset = 0
+                            } else if proposed >= -revealDistance {
+                                offset = proposed
+                            } else {
+                                let extra = -(proposed + revealDistance)
+                                offset = -(revealDistance + extra * 0.25)
+                            }
+                        }
+                        .onEnded { value in
+                            let base = gestureStartOffset ?? offset
+                            let final = base + value.translation.width
+                            withAnimation(.spring(response: 0.45, dampingFraction: 0.55)) {
+                                offset = final < -triggerThreshold ? -revealDistance : 0
+                            }
+                        }
+                )
+        }
+    }
+}
+
+private extension View {
+    func swipeToDelete(perform action: @escaping () -> Void) -> some View {
+        modifier(SwipeToDelete(onDelete: action))
     }
 }
