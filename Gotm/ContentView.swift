@@ -867,7 +867,6 @@ struct ContentView: View {
         if !inFlightIDs.isEmpty {
             pendingTranscriptionEntryID = entry.id
             pendingAudioItemIDs = inFlightIDs
-            transcribingIDs.insert(entry.id)
         }
 
         if inFlightIDs.isEmpty && hasTitleSources {
@@ -877,6 +876,9 @@ struct ContentView: View {
             Task {
                 let title = await TitleService.shared.generateEntryTitle(for: titleSources)
                 store.updateName(for: entryID, name: title)
+                let tagSource = ([textContent] + allTranscripts).filter { !$0.isEmpty }.joined(separator: " ")
+                let tags = await TagService.shared.generateTags(for: tagSource)
+                store.updateTags(for: entryID, tags: tags)
             }
             if let t = primaryAudio?.transcript, !t.isEmpty {
                 Task {

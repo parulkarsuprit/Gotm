@@ -27,6 +27,12 @@ final class RecordingStore {
         save()
     }
 
+    func updateTags(for entryID: UUID, tags: [EntryTag]) {
+        guard let index = recordings.firstIndex(where: { $0.id == entryID }) else { return }
+        recordings[index].tags = tags
+        save()
+    }
+
     func updateTranscript(for entryID: UUID, transcript: String) {
         guard let index = recordings.firstIndex(where: { $0.id == entryID }) else { return }
         recordings[index].transcript = transcript

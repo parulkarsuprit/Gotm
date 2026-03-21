@@ -33,6 +33,7 @@ struct RecordingEntry: Identifiable, Codable, Equatable {
     var transcript: String?   // transcript for primary audio clip only
     var text: String?
     var attachments: [MediaAttachment]
+    var tags: [EntryTag]
 
     var hasAudio: Bool { audioURL != nil }
     var hasText: Bool { !(text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -43,9 +44,15 @@ struct RecordingEntry: Identifiable, Codable, Equatable {
     var audioAttachments: [MediaAttachment] { attachments.filter { $0.type == .audio } }
     var totalItemCount: Int { (audioURL != nil ? 1 : 0) + attachments.count + (hasText ? 1 : 0) }
 
+    /// Tags sorted by feed priority
+    var prioritisedTags: [EntryTag] {
+        tags.sorted { $0.type.feedPriority < $1.type.feedPriority }
+    }
+
     init(id: UUID = UUID(), name: String, isTitleLoading: Bool = false, date: Date = Date(),
          duration: TimeInterval = 0, audioURL: URL? = nil, audioTitle: String? = nil,
-         transcript: String? = nil, text: String? = nil, attachments: [MediaAttachment] = []) {
+         transcript: String? = nil, text: String? = nil, attachments: [MediaAttachment] = [],
+         tags: [EntryTag] = []) {
         self.id = id
         self.name = name
         self.isTitleLoading = isTitleLoading
@@ -56,10 +63,11 @@ struct RecordingEntry: Identifiable, Codable, Equatable {
         self.transcript = transcript
         self.text = text
         self.attachments = attachments
+        self.tags = tags
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, isTitleLoading, date, duration, audioURL, audioTitle, transcript, text, attachments
+        case id, name, isTitleLoading, date, duration, audioURL, audioTitle, transcript, text, attachments, tags
         case legacyFileURL = "fileURL"
         case legacyMediaURL = "mediaURL"
         case legacyMediaType = "mediaType"
@@ -84,6 +92,7 @@ struct RecordingEntry: Identifiable, Codable, Equatable {
             decoded = [MediaAttachment(id: UUID(), url: oldURL, type: oldType)]
         }
         attachments = decoded
+        tags = try c.decodeIfPresent([EntryTag].self, forKey: .tags) ?? []
     }
 
     func encode(to encoder: Encoder) throws {
@@ -98,5 +107,6 @@ struct RecordingEntry: Identifiable, Codable, Equatable {
         try c.encodeIfPresent(transcript, forKey: .transcript)
         try c.encodeIfPresent(text, forKey: .text)
         try c.encode(attachments, forKey: .attachments)
+        try c.encode(tags, forKey: .tags)
     }
 }
