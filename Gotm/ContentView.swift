@@ -4,6 +4,15 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
+// MARK: - Quick Record State
+
+private enum QuickRecordState: Equatable {
+    case idle
+    case holding   // long press active, user still holding
+    case locked    // swiped to lock, hands-free
+    case processing // recording stopped, transcribing
+}
+
 // MARK: - Compose Draft Types
 
 private struct DraftAudioItem: Identifiable {
@@ -82,9 +91,17 @@ struct ContentView: View {
     @State private var selectedIDs: Set<UUID> = []
     @State private var transcribingIDs: Set<UUID> = []
 
+    // Compose draft state
     @State private var draft = ComposeDraft()
     @State private var pendingTranscriptionEntryID: UUID? = nil
     @State private var pendingAudioItemIDs: Set<UUID> = []
+
+    // Quick record state
+    @State private var quickRecordState: QuickRecordState = .idle
+    @State private var quickDragOffset: CGFloat = 0
+    @State private var quickPressTask: Task<Void, Never>? = nil
+    @State private var quickPressStart: Date? = nil
+    private let lockThreshold: CGFloat = 240
 
     @FocusState private var isTextFieldFocused: Bool
     @State private var showPhotoPicker = false
@@ -93,9 +110,11 @@ struct ContentView: View {
     @State private var photoPickerItem: PhotosPickerItem? = nil
     @State private var showAttachmentMenu = false
 
+    // MARK: - Body
+
     var body: some View {
-        let isRecordingUI = isShowingRecordingUI || recordingService.isRecording
-        let showChips = draft.hasChips && !isRecordingUI
+        let isNormalRecording = (isShowingRecordingUI || recordingService.isRecording) && quickRecordState == .idle
+        let showChips = draft.hasChips && !isNormalRecording && quickRecordState == .idle
 
         NavigationStack {
             ZStack {
@@ -110,13 +129,13 @@ struct ContentView: View {
                 .ignoresSafeArea()
                 .onTapGesture { isTextFieldFocused = false }
 
-                if isRecordingUI {
+                if isNormalRecording {
                     RecordingView(level: recordingService.recordingLevel)
                 } else {
                     recordingsListView
                 }
 
-                // Attachment menu panel — floats above bottom bar
+                // Attachment menu panel
                 if showAttachmentMenu {
                     Color.clear
                         .contentShape(Rectangle())
@@ -182,7 +201,7 @@ struct ContentView: View {
             }
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 8) {
-                    // Compose chips strip — appears when draft has audio or attachments
+                    // Compose chips strip
                     if showChips {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
@@ -223,64 +242,42 @@ struct ContentView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
 
-                    // Main capsule bar
-                    HStack(alignment: .center, spacing: 10) {
-                        // Left slot
-                        if isRecordingUI {
-                            RecordingDotView()
-                                .frame(width: 32, height: 32)
-                        } else {
-                            Button {
-                                withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
-                                    showAttachmentMenu.toggle()
-                                }
-                            } label: {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 18, weight: .medium))
-                                    .foregroundStyle(Color(.label))
-                                    .frame(width: 32, height: 32)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                        }
-
-                        // Center slot
-                        if isRecordingUI {
-                            RecordingTimerView(elapsedTime: recordingService.elapsedTime)
-                                .frame(maxWidth: .infinity)
-                        } else {
-                            TextField("Write a note...", text: $draft.text, axis: .vertical)
-                                .lineLimit(1...4)
-                                .focused($isTextFieldFocused)
-                                .frame(maxWidth: .infinity)
-                                .onSubmit { submitDraft() }
-
-                            if draft.hasContent {
-                                Button(action: submitDraft) {
-                                    Image(systemName: "arrow.up.circle.fill")
-                                        .font(.system(size: 22))
-                                        .foregroundStyle(Color(.label))
-                                        .frame(width: 32, height: 32)
-                                        .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .transition(.scale(scale: 0.8).combined(with: .opacity))
-                            }
-                        }
-
-                        // Right slot
-                        RecordButton(isRecording: isRecordingUI, action: primaryRecordAction, size: 48)
+                    // Quick record hint text
+                    if quickRecordState == .holding || quickRecordState == .locked {
+                        Text(quickRecordState == .locked ? "Stop recording to send" : "Release to send")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .transition(.opacity.combined(with: .offset(y: 6)))
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .shadow(color: .black.opacity(0.08), radius: 20, x: 0, y: 4)
+
+                    // Main capsule bar
+                    capsuleBar(isNormalRecording: isNormalRecording)
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
+                .background(alignment: .bottom) {
+                    // Gradient anchored at bottom, taller than VStack so it bleeds upward
+                    // behind the hint text and into the card list for legibility
+                    LinearGradient(
+                        stops: [
+                            .init(color: Color(red: 0.96, green: 0.97, blue: 0.99), location: 0),
+                            .init(color: Color(red: 0.96, green: 0.97, blue: 0.99), location: 0.7),
+                            .init(color: Color(red: 0.96, green: 0.97, blue: 0.99).opacity(0), location: 1.0)
+                        ],
+                        startPoint: .bottom,
+                        endPoint: .top
+                    )
+                    .frame(height: 160)
+                    .ignoresSafeArea(edges: .bottom)
+                    .allowsHitTesting(false)
+                    .opacity(quickRecordState == .holding || quickRecordState == .locked ? 1 : 0)
+                    .animation(.easeInOut(duration: 0.25), value: quickRecordState)
+                }
                 .animation(.spring(response: 0.35, dampingFraction: 0.8), value: showChips)
-                .animation(.easeInOut(duration: 0.18), value: isRecordingUI)
+                .animation(.easeInOut(duration: 0.18), value: isNormalRecording)
                 .animation(.easeInOut(duration: 0.15), value: draft.hasContent)
+                .animation(.spring(response: 0.35, dampingFraction: 0.85), value: quickRecordState)
             }
             .alert("Microphone Access Needed", isPresented: $showingPermissionAlert) {
                 Button("Open Settings") {
@@ -325,6 +322,219 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(.light)
+    }
+
+    // MARK: - Capsule Bar
+
+    @ViewBuilder
+    private func capsuleBar(isNormalRecording: Bool) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            // Left slot
+            leftSlot(isNormalRecording: isNormalRecording)
+
+            // Center slot
+            centerSlot(isNormalRecording: isNormalRecording)
+
+            // Right slot
+            rightSlot(isNormalRecording: isNormalRecording)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background {
+            ZStack {
+                Capsule().fill(.ultraThinMaterial)
+                // Red fill expanding from the trailing (mic button) side
+                Capsule()
+                    .fill(quickBarFillColor)
+                    .scaleEffect(
+                        x: (quickRecordState == .holding || quickRecordState == .locked) ? 1.0 : 0.001,
+                        anchor: .trailing
+                    )
+            }
+        }
+        .shadow(color: .black.opacity(0.08), radius: 20, x: 0, y: 4)
+    }
+
+    @ViewBuilder
+    private func leftSlot(isNormalRecording: Bool) -> some View {
+        if quickRecordState == .processing {
+            Color.clear.frame(width: 32, height: 32)
+        } else if quickRecordState == .holding || quickRecordState == .locked {
+            ZStack {
+                Circle()
+                    .stroke(Color.white.opacity(0.5), lineWidth: 1.5)
+                    .frame(width: 32, height: 32)
+                    .scaleEffect(1.0 + lockProgress * 0.2)
+                Image(systemName: quickRecordState == .locked ? "lock.fill" : "lock")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 32, height: 32)
+            .transition(.scale.combined(with: .opacity))
+        } else if isNormalRecording {
+            RecordingDotView()
+                .frame(width: 32, height: 32)
+        } else {
+            Button {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
+                    showAttachmentMenu.toggle()
+                }
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(Color(.label))
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder
+    private func centerSlot(isNormalRecording: Bool) -> some View {
+        if quickRecordState == .processing {
+            Text("Processing…")
+                .font(.body)
+                .foregroundStyle(Color.red.opacity(0.75))
+                .frame(maxWidth: .infinity)
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+        } else if quickRecordState == .holding || quickRecordState == .locked {
+            VStack(spacing: 3) {
+                RecordingTimerView(elapsedTime: recordingService.elapsedTime)
+                    .foregroundStyle(.white)
+                if quickRecordState == .holding {
+                    HStack(spacing: 3) {
+                        ForEach(0..<3, id: \.self) { i in
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(Color.white.opacity(0.7 - Double(i) * 0.2))
+                                .offset(x: CGFloat(i) * -2 * lockProgress)
+                        }
+                        Text("slide to lock")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.white.opacity(0.65))
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .transition(.opacity)
+        } else if isNormalRecording {
+            RecordingTimerView(elapsedTime: recordingService.elapsedTime)
+                .frame(maxWidth: .infinity)
+        } else {
+            TextField("Write a note...", text: $draft.text, axis: .vertical)
+                .lineLimit(1...4)
+                .focused($isTextFieldFocused)
+                .frame(maxWidth: .infinity)
+                .onSubmit { submitDraft() }
+
+            if draft.hasContent {
+                Button(action: submitDraft) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(Color(.label))
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .transition(.scale(scale: 0.8).combined(with: .opacity))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func rightSlot(isNormalRecording: Bool) -> some View {
+        if quickRecordState == .locked {
+            Button { stopAndProcessQuickRecord() } label: {
+                ZStack {
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 48, height: 48)
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Color.red)
+                }
+            }
+            .buttonStyle(.plain)
+            .transition(.scale.combined(with: .opacity))
+        } else if quickRecordState == .processing {
+            Color.clear.frame(width: 48, height: 48)
+        } else {
+            micButton(isNormalRecording: isNormalRecording)
+        }
+    }
+
+    @ViewBuilder
+    private func micButton(isNormalRecording: Bool) -> some View {
+        ZStack {
+            Circle()
+                .fill(isNormalRecording ? Color.red : Color(.systemBackground))
+                .frame(width: 48, height: 48)
+                .overlay(
+                    Circle()
+                        .stroke(Color(.separator), lineWidth: 0.5)
+                        .opacity(isNormalRecording ? 0 : 1)
+                )
+            Image(systemName: "mic.fill")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(isNormalRecording ? Color.white : Color(.label))
+        }
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    // First touch: arm the long-press timer
+                    if quickPressTask == nil && quickRecordState == .idle {
+                        quickPressStart = Date()
+                        let generator = UIImpactFeedbackGenerator(style: .medium)
+                        generator.prepare()
+                        quickPressTask = Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 250_000_000) // 0.25s
+                            guard !Task.isCancelled else { return }
+                            generator.impactOccurred()
+                            startQuickRecord()
+                        }
+                    }
+                    // Handle swipe-to-lock when holding
+                    if quickRecordState == .holding {
+                        quickDragOffset = min(0, value.translation.width)
+                        if quickDragOffset < -lockThreshold {
+                            lockQuickRecord()
+                        }
+                    }
+                }
+                .onEnded { _ in
+                    quickDragOffset = 0
+                    let pressDuration = quickPressStart.map { Date().timeIntervalSince($0) } ?? 1.0
+                    quickPressStart = nil
+                    if quickRecordState == .holding {
+                        stopAndProcessQuickRecord()
+                    } else if quickRecordState == .locked {
+                        // Locked = hands-free, finger release does nothing — stop button handles it
+                    } else if pressDuration < 0.2 {
+                        // Genuine short tap (< 200ms): cancel timer and do normal action
+                        quickPressTask?.cancel()
+                        quickPressTask = nil
+                        primaryRecordAction()
+                    } else {
+                        // Press was long enough that the task may be mid-flight — cancel silently
+                        quickPressTask?.cancel()
+                        quickPressTask = nil
+                    }
+                }
+        )
+    }
+
+    // MARK: - Quick Record Helpers
+
+    private var lockProgress: CGFloat {
+        min(1.0, abs(quickDragOffset) / lockThreshold)
+    }
+
+    private var quickBarFillColor: Color {
+        switch quickRecordState {
+        case .idle, .processing: return .clear
+        case .holding, .locked: return .red
+        }
     }
 
     // MARK: - List
@@ -386,7 +596,7 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Recording
+    // MARK: - Normal Recording
 
     private func primaryRecordAction() {
         showAttachmentMenu = false
@@ -437,25 +647,17 @@ struct ContentView: View {
                 let transcript = try await TranscriptionService.shared.transcribe(fileURL: fileURL)
 
                 if pendingAudioItemIDs.contains(itemID), let entryID = pendingTranscriptionEntryID {
-                    // User submitted before this transcription finished
                     if Self.isValidTranscript(transcript) {
                         let entry = store.recordings.first(where: { $0.id == entryID })
-                        let isPrimary = entry?.audioURL != nil &&
-                            !pendingAudioItemIDs.subtracting([itemID]).isEmpty == false
-                            // treat as primary if it's the only/first audio item
-                        // Store transcript on the correct slot
                         if entry?.transcript == nil {
                             store.updateTranscript(for: entryID, transcript: transcript)
-                        } else {
-                            // Additional clip — find the attachment with no transcript yet
-                            if let attachment = entry?.audioAttachments.first(where: { $0.transcript == nil }) {
-                                store.updateAttachment(for: entryID, attachmentID: attachment.id, transcript: transcript)
-                            }
+                        } else if let attachment = entry?.audioAttachments.first(where: { $0.transcript == nil }) {
+                            store.updateAttachment(for: entryID, attachmentID: attachment.id, transcript: transcript)
                         }
-                        // Generate individual clip title
                         Task {
                             let clipTitle = await TitleService.shared.generateTitle(for: transcript)
-                            if entry?.transcript == nil {
+                            if let entry = store.recordings.first(where: { $0.id == entryID }),
+                               entry.audioTitle == nil {
                                 store.updateAudioTitle(for: entryID, title: clipTitle)
                             } else if let attachment = store.recordings
                                 .first(where: { $0.id == entryID })?
@@ -466,7 +668,6 @@ struct ContentView: View {
                     }
                     pendingAudioItemIDs.remove(itemID)
                     if pendingAudioItemIDs.isEmpty {
-                        // All transcriptions done — regenerate entry title
                         if let entry = store.recordings.first(where: { $0.id == entryID }) {
                             let allTranscripts = ([entry.transcript] + entry.audioAttachments.map { $0.transcript })
                                 .compactMap { $0 }.filter { !$0.isEmpty }
@@ -481,7 +682,6 @@ struct ContentView: View {
                         pendingTranscriptionEntryID = nil
                     }
                 } else if let idx = draft.audioItems.firstIndex(where: { $0.id == itemID }) {
-                    // Still in draft — update transcript or remove if noise
                     if Self.isValidTranscript(transcript) {
                         draft.audioItems[idx].transcript = transcript
                         draft.audioItems[idx].isTranscribing = false
@@ -499,9 +699,107 @@ struct ContentView: View {
                     draft.audioItems.remove(at: idx)
                 }
             }
-            // Clear transcribing flag if still in draft
             if let idx = draft.audioItems.firstIndex(where: { $0.id == itemID }) {
                 draft.audioItems[idx].isTranscribing = false
+            }
+        }
+    }
+
+    // MARK: - Quick Record
+
+    private func startQuickRecord() {
+        quickPressTask = nil
+        quickPressStart = nil
+        Task {
+            let permission = AVAudioSession.sharedInstance().recordPermission
+            switch permission {
+            case .undetermined:
+                let granted = await recordingService.requestPermission()
+                guard granted else { showingPermissionAlert = true; return }
+            case .denied:
+                showingPermissionAlert = true
+                return
+            case .granted:
+                break
+            @unknown default:
+                return
+            }
+            do {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    quickRecordState = .holding
+                }
+                try recordingService.startRecording()
+            } catch {
+                quickRecordState = .idle
+                showingPermissionAlert = true
+            }
+        }
+    }
+
+    private func lockQuickRecord() {
+        guard quickRecordState == .holding else { return }
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            quickRecordState = .locked
+        }
+        UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+        quickDragOffset = 0
+    }
+
+    private func stopAndProcessQuickRecord() {
+        guard quickRecordState == .holding || quickRecordState == .locked else { return }
+        guard let (fileURL, duration) = recordingService.stopRecording() else {
+            withAnimation { quickRecordState = .idle }
+            return
+        }
+
+        // Discard accidental presses — nothing under 1 second is intentional
+        guard duration >= 1.0 else {
+            try? FileManager.default.removeItem(at: fileURL)
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                quickRecordState = .idle
+            }
+            return
+        }
+
+        withAnimation(.easeInOut(duration: 0.2)) {
+            quickRecordState = .processing
+        }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+
+        Task {
+            do {
+                let transcript = try await TranscriptionService.shared.transcribe(fileURL: fileURL)
+                guard Self.isValidTranscript(transcript) else {
+                    // No speech detected — discard silently
+                    try? FileManager.default.removeItem(at: fileURL)
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                        quickRecordState = .idle
+                    }
+                    return
+                }
+
+                let entry = RecordingEntry(
+                    name: "Loading…",
+                    isTitleLoading: true,
+                    duration: duration,
+                    audioURL: fileURL,
+                    transcript: transcript
+                )
+                store.add(entry)
+
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                    quickRecordState = .idle
+                }
+
+                let title = await TitleService.shared.generateTitle(for: transcript)
+                store.updateName(for: entry.id, name: title)
+                store.updateAudioTitle(for: entry.id, title: title)
+            } catch {
+                print("❌ [QuickRecord] Transcription error: \(error.localizedDescription)")
+                try? FileManager.default.removeItem(at: fileURL)
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                    quickRecordState = .idle
+                }
             }
         }
     }
@@ -545,15 +843,12 @@ struct ContentView: View {
             MediaAttachment(id: $0.id, url: $0.url, type: $0.type)
         }
 
-        // Primary audio is first item; additional audio clips become .audio attachments
-        // Each carries its own transcript (not combined)
         let primaryAudio = draft.audioItems.first
         let additionalAudioItems = Array(draft.audioItems.dropFirst())
         let audioAttachments = additionalAudioItems.map {
             MediaAttachment(id: $0.id, url: $0.url, type: .audio, transcript: $0.transcript)
         }
 
-        // Gather all available transcripts for title generation
         let allTranscripts = draft.audioItems.compactMap { $0.transcript }.filter { !$0.isEmpty }
         let hasTitleSources = !allTranscripts.isEmpty || !textContent.isEmpty
         let inFlightIDs = Set(draft.audioItems.filter { $0.isTranscribing }.map { $0.id })
@@ -569,31 +864,26 @@ struct ContentView: View {
         )
         store.add(entry)
 
-        // Track in-flight transcriptions so they update the saved entry on completion
         if !inFlightIDs.isEmpty {
             pendingTranscriptionEntryID = entry.id
             pendingAudioItemIDs = inFlightIDs
             transcribingIDs.insert(entry.id)
         }
 
-        // Fire all title generation concurrently now if transcriptions are already done
         if inFlightIDs.isEmpty && hasTitleSources {
             let entryID = entry.id
             let titleSources = allTranscripts.isEmpty ? [textContent] : allTranscripts
 
-            // Entry-level title (multi-topic aware)
             Task {
                 let title = await TitleService.shared.generateEntryTitle(for: titleSources)
                 store.updateName(for: entryID, name: title)
             }
-            // Primary clip title
             if let t = primaryAudio?.transcript, !t.isEmpty {
                 Task {
                     let clipTitle = await TitleService.shared.generateTitle(for: t)
                     store.updateAudioTitle(for: entryID, title: clipTitle)
                 }
             }
-            // Additional clip titles
             for (attachment, item) in zip(audioAttachments, additionalAudioItems) {
                 if let t = item.transcript, !t.isEmpty {
                     let aid = attachment.id
@@ -804,10 +1094,6 @@ private struct RecordingDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var recordingService = RecordingService.shared
 
-    private var isPlayingMain: Bool {
-        recordingService.isPlaying && recordingService.playingURL == entry.audioURL
-    }
-
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -889,13 +1175,11 @@ private struct RecordingDetailSheet: View {
     private func audioCard(url: URL, duration: TimeInterval?, clipTitle: String?, transcript: String?) -> some View {
         let isThisPlaying = recordingService.isPlaying && recordingService.playingURL == url
         VStack(alignment: .leading, spacing: 12) {
-            // Clip title
             if let clipTitle {
                 Text(clipTitle)
                     .font(.headline)
             }
 
-            // Playback controls
             HStack(spacing: 14) {
                 Button {
                     recordingService.play(url: url)
@@ -936,7 +1220,6 @@ private struct RecordingDetailSheet: View {
                 }
             }
 
-            // Transcript inline
             if let transcript, !transcript.isEmpty {
                 Text(transcript)
                     .font(.body)
