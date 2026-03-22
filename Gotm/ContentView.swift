@@ -615,7 +615,7 @@ struct ContentView: View {
                             ForEach(Array(recordings.enumerated()), id: \.element.id) { index, entry in
                                 RecordingRowView(
                                     entry: entry,
-                                    index: store.recordings.count - store.recordings.firstIndex(where: { $0.id == entry.id })!,
+                                    index: recordings.count - index,
                                     isSelectable: selectionMode,
                                     isSelected: selectedIDs.contains(entry.id),
                                     isTranscribing: transcribingIDs.contains(entry.id),
@@ -1482,7 +1482,7 @@ private struct SwipeToDelete: ViewModifier {
             // original (un-offset) hit area when it's revealed.
             Button {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { offset = 0 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { onDelete() }
+                onDelete()
             } label: {
                 Image(systemName: "trash.fill")
                     .font(.system(size: 16, weight: .semibold))

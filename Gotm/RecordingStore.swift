@@ -57,9 +57,23 @@ final class RecordingStore {
     func delete(_ entry: RecordingEntry) {
         guard let index = recordings.firstIndex(of: entry) else { return }
         let removed = recordings.remove(at: index)
-        if let url = removed.audioURL { deleteFile(at: url) }
-        for attachment in removed.attachments { deleteFile(at: attachment.url) }
-        save()
+        // Capture everything needed for background I/O before leaving main actor
+        let audioURL = removed.audioURL
+        let attachmentURLs = removed.attachments.map { $0.url }
+        let saveURL = recordingsFileURL()
+        let snapshot = recordings
+        // File deletions and save run off the main thread so UI never freezes
+        Task.detached(priority: .utility) {
+            if let url = audioURL {
+                try? FileManager.default.removeItem(at: url)
+            }
+            for url in attachmentURLs {
+                try? FileManager.default.removeItem(at: url)
+            }
+            if let data = try? JSONEncoder().encode(snapshot) {
+                try? data.write(to: saveURL, options: .atomic)
+            }
+        }
     }
 
     static func mediaDirectory(fileManager: FileManager = .default) -> URL {
