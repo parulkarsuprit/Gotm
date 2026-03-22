@@ -109,6 +109,8 @@ struct ContentView: View {
     @State private var showCamera = false
     @State private var photoPickerItem: PhotosPickerItem? = nil
     @State private var showAttachmentMenu = false
+    @State private var showSearch = false
+    @State private var searchText = ""
 
     // MARK: - Body
 
@@ -120,8 +122,8 @@ struct ContentView: View {
             ZStack {
                 LinearGradient(
                     colors: [
-                        Color(red: 0.98, green: 0.98, blue: 0.99),
-                        Color(red: 0.95, green: 0.96, blue: 0.98)
+                        Color(red: 0.91, green: 0.87, blue: 0.80),
+                        Color(red: 0.87, green: 0.83, blue: 0.76)
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
@@ -167,8 +169,9 @@ struct ContentView: View {
                     .transition(.scale(scale: 0.85, anchor: .bottomLeading).combined(with: .opacity))
                 }
             }
-            .navigationTitle("Gotm")
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
                 if selectionMode {
                     ToolbarItem(placement: .topBarLeading) {
@@ -198,6 +201,29 @@ struct ContentView: View {
                         }
                     }
                 }
+            }
+            .safeAreaInset(edge: .top) {
+                headerView
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                    .padding(.bottom, 10)
+                    .background {
+                        ZStack {
+                            // Soft tint layer — lifts header above scrolling cards
+                            Color(red: 0.91, green: 0.87, blue: 0.80).opacity(0.5)
+                            // Gradient fade — opaque at top, transparent at bottom
+                            LinearGradient(
+                                stops: [
+                                    .init(color: Color(red: 0.91, green: 0.87, blue: 0.80), location: 0),
+                                    .init(color: Color(red: 0.91, green: 0.87, blue: 0.80), location: 0.6),
+                                    .init(color: Color(red: 0.91, green: 0.87, blue: 0.80).opacity(0), location: 1.0)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        }
+                        .ignoresSafeArea(edges: .top)
+                    }
             }
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 8) {
@@ -254,16 +280,16 @@ struct ContentView: View {
                     // Main capsule bar
                     capsuleBar(isNormalRecording: isNormalRecording)
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 18)
                 .padding(.bottom, 8)
                 .background(alignment: .bottom) {
                     // Gradient anchored at bottom, taller than VStack so it bleeds upward
                     // behind the hint text and into the card list for legibility
                     LinearGradient(
                         stops: [
-                            .init(color: Color(red: 0.96, green: 0.97, blue: 0.99), location: 0),
-                            .init(color: Color(red: 0.96, green: 0.97, blue: 0.99), location: 0.7),
-                            .init(color: Color(red: 0.96, green: 0.97, blue: 0.99).opacity(0), location: 1.0)
+                            .init(color: Color(red: 0.87, green: 0.83, blue: 0.76), location: 0),
+                            .init(color: Color(red: 0.87, green: 0.83, blue: 0.76), location: 0.7),
+                            .init(color: Color(red: 0.87, green: 0.83, blue: 0.76).opacity(0), location: 1.0)
                         ],
                         startPoint: .bottom,
                         endPoint: .top
@@ -344,6 +370,8 @@ struct ContentView: View {
         .background {
             ZStack {
                 Capsule().fill(.ultraThinMaterial)
+                // White rim — makes the capsule read as glass rather than just a blurry shape
+                Capsule().strokeBorder(Color.white.opacity(0.6), lineWidth: 1)
                 // Red fill expanding from the trailing (mic button) side
                 Capsule()
                     .fill(quickBarFillColor)
@@ -353,7 +381,7 @@ struct ContentView: View {
                     )
             }
         }
-        .shadow(color: .black.opacity(0.08), radius: 20, x: 0, y: 4)
+        .shadow(color: .black.opacity(0.18), radius: 16, x: 0, y: 6)
     }
 
     @ViewBuilder
@@ -540,36 +568,75 @@ struct ContentView: View {
 
     // MARK: - List
 
+    private var filteredRecordings: [RecordingEntry] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return store.recordings }
+        return store.recordings.filter { entry in
+            entry.name.lowercased().contains(query) ||
+            (entry.transcript?.lowercased().contains(query) ?? false) ||
+            (entry.text?.lowercased().contains(query) ?? false)
+        }
+    }
+
     private var recordingsListView: some View {
         VStack(spacing: 0) {
             if store.recordings.isEmpty {
                 emptyStateView
             } else {
                 ScrollView {
+                    let recordings = filteredRecordings
+                    let cardPalette: [Color] = [
+                        Color(red: 0.99, green: 0.98, blue: 0.96), // warm white
+                        Color(red: 0.99, green: 0.97, blue: 0.97), // pale blush-white
+                        Color(red: 0.99, green: 0.97, blue: 0.94), // creamy white
+                        Color(red: 0.96, green: 0.96, blue: 0.96), // soft grey-white
+                        Color(red: 0.99, green: 0.98, blue: 0.94), // ivory
+                        Color(red: 0.97, green: 0.98, blue: 0.97), // barely-there green-white
+                    ]
+                    let cardColors: [Color] = {
+                        var result: [Color] = []
+                        for entry in recordings {
+                            let recent = Array(result.suffix(2))
+                            let available = cardPalette.filter { c in !recent.contains(where: { $0 == c }) }
+                            let pool = available.isEmpty ? cardPalette : available
+                            let idx = abs(entry.id.hashValue) % pool.count
+                            result.append(pool[idx])
+                        }
+                        return result
+                    }()
                     LazyVStack(spacing: 12) {
-                        ForEach(Array(store.recordings.enumerated()), id: \.element.id) { index, entry in
-                            RecordingRowView(
-                                entry: entry,
-                                index: store.recordings.count - index,
-                                isSelectable: selectionMode,
-                                isSelected: selectedIDs.contains(entry.id),
-                                isTranscribing: transcribingIDs.contains(entry.id)
-                            )
-                            .swipeToDelete(perform: { store.delete(entry) })
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                if isTextFieldFocused {
-                                    isTextFieldFocused = false
-                                } else if selectionMode {
-                                    toggleSelection(for: entry.id)
-                                } else {
-                                    viewingEntry = entry
+                        if recordings.isEmpty {
+                            Text("No notes match \(searchText)")
+                                .font(.system(size: 15))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 40)
+                        } else {
+                            ForEach(Array(recordings.enumerated()), id: \.element.id) { index, entry in
+                                RecordingRowView(
+                                    entry: entry,
+                                    index: store.recordings.count - store.recordings.firstIndex(where: { $0.id == entry.id })!,
+                                    isSelectable: selectionMode,
+                                    isSelected: selectedIDs.contains(entry.id),
+                                    isTranscribing: transcribingIDs.contains(entry.id),
+                                    backgroundColor: cardColors[index]
+                                )
+                                .swipeToDelete(perform: { store.delete(entry) })
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    if isTextFieldFocused {
+                                        isTextFieldFocused = false
+                                    } else if selectionMode {
+                                        toggleSelection(for: entry.id)
+                                    } else {
+                                        viewingEntry = entry
+                                    }
                                 }
-                            }
-                            .onLongPressGesture(minimumDuration: 0.25) {
-                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                selectionMode = true
-                                toggleSelection(for: entry.id)
+                                .onLongPressGesture(minimumDuration: 0.25) {
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                    selectionMode = true
+                                    toggleSelection(for: entry.id)
+                                }
                             }
                         }
                     }
@@ -577,6 +644,71 @@ struct ContentView: View {
                     .padding(.vertical, 6)
                 }
                 .scrollDismissesKeyboard(.immediately)
+            }
+        }
+    }
+
+    // MARK: - Header
+
+    private var headerView: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 8) {
+                Text("Collected Thoughts")
+                    .font(.system(size: 24, weight: .bold, design: .default))
+                    .foregroundStyle(.primary)
+                    .kerning(-0.3)
+                    .padding(.leading, 2)
+
+                Spacer()
+
+                HStack(spacing: 20) {
+                    Button {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) {
+                            showSearch.toggle()
+                            if !showSearch { searchText = "" }
+                        }
+                    } label: {
+                        Image(systemName: showSearch ? "xmark" : "magnifyingglass")
+                            .font(.system(size: 19, weight: .regular))
+                            .foregroundStyle(.primary.opacity(0.6))
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        // Settings — placeholder
+                    } label: {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 19, weight: .regular))
+                            .foregroundStyle(.primary.opacity(0.6))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            if showSearch {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.tertiary)
+                    TextField("Search notes…", text: $searchText)
+                        .font(.system(size: 15))
+                        .autocorrectionDisabled()
+                    if !searchText.isEmpty {
+                        Button { searchText = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.5), lineWidth: 0.5)
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
     }
@@ -1303,7 +1435,7 @@ private struct RecordingDetailSheet: View {
 private struct SwipeToDelete: ViewModifier {
     let onDelete: () -> Void
     @State private var offset: CGFloat = 0
-    @GestureState private var gestureStartOffset: CGFloat? = nil
+    @State private var startOffset: CGFloat = 0
 
     private let revealDistance: CGFloat = 80
     private let triggerThreshold: CGFloat = 44
@@ -1315,6 +1447,39 @@ private struct SwipeToDelete: ViewModifier {
 
     func body(content: Content) -> some View {
         ZStack(alignment: .trailing) {
+            content
+                .offset(x: offset)
+                .overlay {
+                    // UIKit-backed horizontal-only pan recognizer.
+                    // gestureRecognizerShouldBegin rejects vertical pans at the UIKit level
+                    // so UIScrollView's own recognizer never sees competition.
+                    HorizontalPanGestureView(
+                        onBegan: {
+                            startOffset = offset
+                        },
+                        onChanged: { translation in
+                            let proposed = startOffset + translation
+                            if proposed >= 0 {
+                                offset = 0
+                            } else if proposed >= -revealDistance {
+                                offset = proposed
+                            } else {
+                                let extra = -(proposed + revealDistance)
+                                offset = -(revealDistance + extra * 0.25)
+                            }
+                        },
+                        onEnded: { translation, velocityX in
+                            let final = startOffset + translation
+                            withAnimation(.spring(response: 0.45, dampingFraction: 0.55)) {
+                                offset = (final < -triggerThreshold || velocityX < -500) ? -revealDistance : 0
+                            }
+                        }
+                    )
+                }
+
+            // Delete button placed AFTER content so it's in front in the ZStack.
+            // SwiftUI hit-tests front-to-back, so the button wins over the card's
+            // original (un-offset) hit area when it's revealed.
             Button {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { offset = 0 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { onDelete() }
@@ -1329,37 +1494,72 @@ private struct SwipeToDelete: ViewModifier {
             .opacity(progress)
             .padding(.trailing, (revealDistance - buttonSize) / 2)
             .allowsHitTesting(progress > 0.5)
-
-            content
-                .offset(x: offset)
-                .gesture(
-                    DragGesture(minimumDistance: 15)
-                        .updating($gestureStartOffset) { _, state, _ in
-                            if state == nil { state = offset }
-                        }
-                        .onChanged { value in
-                            let base = gestureStartOffset ?? offset
-                            let proposed = base + value.translation.width
-                            // clamp between fully closed (0) and fully open (-revealDistance)
-                            // rubber-band if over-pulling past open
-                            if proposed >= 0 {
-                                offset = 0
-                            } else if proposed >= -revealDistance {
-                                offset = proposed
-                            } else {
-                                let extra = -(proposed + revealDistance)
-                                offset = -(revealDistance + extra * 0.25)
-                            }
-                        }
-                        .onEnded { value in
-                            let base = gestureStartOffset ?? offset
-                            let final = base + value.translation.width
-                            withAnimation(.spring(response: 0.45, dampingFraction: 0.55)) {
-                                offset = final < -triggerThreshold ? -revealDistance : 0
-                            }
-                        }
-                )
         }
+    }
+}
+
+// UIViewRepresentable that adds a UIPanGestureRecognizer filtered to horizontal-only.
+// Key: gestureRecognizerShouldBegin checks initial velocity and rejects vertical drags
+// before the recognizer activates, letting UIScrollView scroll freely.
+private struct HorizontalPanGestureView: UIViewRepresentable {
+    var onBegan: () -> Void
+    var onChanged: (CGFloat) -> Void
+    var onEnded: (CGFloat, CGFloat) -> Void
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        let pan = UIPanGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handlePan(_:))
+        )
+        pan.delegate = context.coordinator
+        pan.cancelsTouchesInView = false
+        view.addGestureRecognizer(pan)
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.parent = self
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var parent: HorizontalPanGestureView
+
+        init(parent: HorizontalPanGestureView) {
+            self.parent = parent
+        }
+
+        @objc func handlePan(_ pan: UIPanGestureRecognizer) {
+            let tx = pan.translation(in: pan.view).x
+            let vx = pan.velocity(in: pan.view).x
+            switch pan.state {
+            case .began:
+                parent.onBegan()
+            case .changed:
+                parent.onChanged(tx)
+            case .ended, .cancelled:
+                parent.onEnded(tx, vx)
+            default:
+                break
+            }
+        }
+
+        // Only start if the initial velocity is clearly horizontal.
+        // This is the critical filter — vertical pans never activate this recognizer.
+        func gestureRecognizerShouldBegin(_ gr: UIGestureRecognizer) -> Bool {
+            guard let pan = gr as? UIPanGestureRecognizer else { return true }
+            let v = pan.velocity(in: pan.view)
+            return abs(v.x) > abs(v.y) * 1.5
+        }
+
+        // Allow simultaneous recognition with the scroll view's pan recognizer.
+        func gestureRecognizer(
+            _ gr: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+        ) -> Bool { true }
     }
 }
 

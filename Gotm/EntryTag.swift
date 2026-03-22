@@ -11,6 +11,7 @@ enum TagType: String, Codable, CaseIterable {
     case reference
     case purchase
     case money
+    case note
 
     var label: String {
         switch self {
@@ -24,6 +25,7 @@ enum TagType: String, Codable, CaseIterable {
         case .reference: return "Reference"
         case .purchase:  return "Purchase"
         case .money:     return "Money"
+        case .note:      return "Note"
         }
     }
 
@@ -39,6 +41,7 @@ enum TagType: String, Codable, CaseIterable {
         case .reference: return "doc.text.fill"
         case .purchase:  return "cart.fill"
         case .money:     return "dollarsign.circle.fill"
+        case .note:      return "note.text"
         }
     }
 
@@ -55,6 +58,7 @@ enum TagType: String, Codable, CaseIterable {
         case .reference: return 7
         case .purchase:  return 8
         case .money:     return 9
+        case .note:      return 10
         }
     }
 }

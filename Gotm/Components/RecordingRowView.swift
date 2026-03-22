@@ -7,6 +7,9 @@ struct RecordingRowView: View {
     let isSelectable: Bool
     let isSelected: Bool
     let isTranscribing: Bool
+    let backgroundColor: Color
+
+    private let cardInset: CGFloat = 20
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -28,6 +31,8 @@ struct RecordingRowView: View {
             }
 
             // Main content — left aligned
+            // paddingBottom reserves space so content never overlaps the pinned chip overlay
+            // chip height ~28pt + cardInset gap = ~48pt minimum clearance
             VStack(alignment: .leading, spacing: 0) {
 
                 // Row 1: title + timestamp
@@ -112,37 +117,39 @@ struct RecordingRowView: View {
                     }
                     .padding(.top, 8)
                 }
-
-                // Tag chips
-                if !entry.prioritisedTags.isEmpty {
-                    HStack(spacing: 6) {
-                        ForEach(Array(entry.prioritisedTags.prefix(2))) { tag in
-                            TagChip(tag: tag)
-                        }
-                        if entry.tags.count > 2 {
-                            Text("+\(entry.tags.count - 2)")
-                                .font(.caption2)
-                                .fontWeight(.medium)
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 3)
-                                .background(Color(.systemFill))
-                                .clipShape(Capsule())
-                        }
-                    }
-                    .padding(.top, 16)
-                }
             }
-
+            .padding(.bottom, 48) // clears pinned chip overlay (chip ~28pt + 20pt gap)
         }
-        .padding(.vertical, 20)
+        .padding(.top, cardInset)
+        .padding(.bottom, cardInset)
         .padding(.leading, 12)
         .padding(.trailing, 20)
-        .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
+        // Chips pinned to bottom — same inset from bottom edge as title has from top edge
+        .overlay(alignment: .bottomLeading) {
+            HStack(spacing: 6) {
+                ForEach(Array(entry.prioritisedTags.prefix(2))) { tag in
+                    TagChip(tag: tag)
+                }
+                if entry.tags.count > 2 {
+                    Text("+\(entry.tags.count - 2)")
+                        .font(.caption2)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color(.systemFill))
+                        .clipShape(Capsule())
+                }
+            }
+            .padding(.leading, 12 + 20 + 12) // card leading + index chip width + hstack spacing
+            .padding(.bottom, cardInset)
+        }
+        .background(backgroundColor)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .shadow(color: Color.black.opacity(0.015), radius: 4, x: 0, y: 1)
         .animation(.easeInOut(duration: 0.2), value: isSelectable)
     }
+
 
     private func relativeDayText(from date: Date) -> String {
         let calendar = Calendar.current

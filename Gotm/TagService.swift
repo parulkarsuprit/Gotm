@@ -14,7 +14,7 @@ struct TagIntentOutput {
     @Guide(description: "True if the note contains a time-based nudge, deadline, or follow-up that is NOT a scheduled meeting — e.g. 'remind me to', 'don't forget', 'by Friday', 'follow up in two days', 'renew before end of month'")
     var isReminder: Bool
 
-    @Guide(description: "True if the note contains something the user wants to figure out, research, or decide — includes rhetorical questions, 'I wonder', 'not sure if', 'should I', even without a question mark (common in voice notes)")
+    @Guide(description: "True ONLY if the overall note is genuinely asking something or expressing uncertainty the user wants resolved — e.g. 'how do I do X', 'should we change Y', 'I wonder if Z'. A single question mark mid-sentence, a rhetorical filler like 'you know?', or casual punctuation does NOT make this true. The dominant intent of the note must be a question or open inquiry.")
     var isQuestion: Bool
 
     @Guide(description: "True if the note contains a creative idea, 'what if' exploration, insight, or non-actionable concept")
@@ -22,6 +22,12 @@ struct TagIntentOutput {
 
     @Guide(description: "True if the note captures a firm decision or commitment that has been made ('we'll go with X', 'I decided', 'let's do this')")
     var isDecision: Bool
+
+    @Guide(description: "True ONLY if a specific real human person is mentioned by name — e.g. 'John said', 'meeting with Sarah', 'ask Rahul'. Do NOT return true for band names (Nirvana), places (Bandra), companies (Apple), concepts, or any non-human proper noun. Only genuine human names count.")
+    var isPerson: Bool
+
+    @Guide(description: "True ONLY if the note explicitly refers to an external document, article, video, link, file, or piece of content the person wants to look up, share, or save — e.g. 'check out that article', 'send me the report', 'watch that video', 'here is the link'. Do NOT return true just because a word sounds like a file type or abbreviation (e.g. 'doctor', 'dock', 'documentation' do NOT count). The reference must be to an actual external resource.")
+    var isReference: Bool
 }
 
 // MARK: - TagService
@@ -42,7 +48,7 @@ final class TagService {
         // Layer 2: Foundation Models for nuanced intent tags
         // Run for any intent tag not already covered by rules
         let existingTypes = Set(tags.map { $0.type })
-        let intentTypes: Set<TagType> = [.action, .event, .reminder, .question, .idea, .decision]
+        let intentTypes: Set<TagType> = [.action, .event, .reminder, .question, .idea, .decision, .person, .reference]
         let needsModel = !intentTypes.isSubset(of: existingTypes)
         if needsModel {
             tags += await modelIntentTags(for: text, skipping: existingTypes)
@@ -61,7 +67,14 @@ final class TagService {
             }
         }
 
-        return best.values.sorted { $0.type.feedPriority < $1.type.feedPriority }
+        var result = best.values.sorted { $0.type.feedPriority < $1.type.feedPriority }
+
+        // Fallback — every entry gets at least a Note tag
+        if result.isEmpty {
+            result = [EntryTag(type: .note, status: .auto, confidence: 1.0)]
+        }
+
+        return result
     }
 
     // MARK: - Rule-based layer
@@ -103,10 +116,8 @@ final class TagService {
             tags.append(EntryTag(type: .money, status: .suggested, confidence: 0.90, triggerText: trigger))
         }
 
-        // Person — auto-apply with quick-remove affordance (PII)
-        if let trigger = matchPerson(text) {
-            tags.append(EntryTag(type: .person, status: .auto, confidence: 0.80, triggerText: trigger))
-        }
+        // Person — handled entirely by AI model (rule-based detection is too unreliable:
+        // it can't distinguish human names from bands, places, brands, etc.)
 
         // Rule-based action signals (strong imperative patterns only)
         if !isNegated, let trigger = matchActionRules(lower) {
@@ -131,8 +142,9 @@ final class TagService {
     }
 
     private func matchQuestion(_ lower: String) -> String? {
-        if lower.contains("?") { return "?" }
-
+        // No bare "?" check — a single question mark doesn't mean the note is a question.
+        // The AI model handles question detection with full context.
+        // Rules only fire on unambiguous question structures.
         let patterns = [
             // Wh- openers
             "how do i", "how do we", "how can i", "how can we", "how should",
@@ -192,6 +204,25 @@ final class TagService {
         // "gotta X by Y" / "gotta remember"
         if lower.contains("gotta ") { return "gotta" }
 
+        // Future time + intention = implicit reminder
+        // e.g. "tomorrow I need to plan a visit" / "I should call next week"
+        let futureTimes = [
+            "tomorrow", "tonight", "next week", "this weekend",
+            "next monday", "next tuesday", "next wednesday", "next thursday",
+            "next friday", "next saturday", "next sunday",
+            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
+        ]
+        let intentionWords = [
+            "need to", "have to", "got to", "should ", "plan to",
+            "planning to", "want to", "thinking of", "going to"
+        ]
+        for time in futureTimes {
+            guard lower.contains(time) else { continue }
+            for intention in intentionWords {
+                if lower.contains(intention) { return time }
+            }
+        }
+
         return nil
     }
 
@@ -245,26 +276,48 @@ final class TagService {
         if lower.contains("http://") || lower.contains("https://") || lower.contains("www.") {
             return "link"
         }
-        // File extensions
+        // File extensions — require a non-alpha character after the extension so
+        // ".doc" doesn't match "doctor", ".md" doesn't match "made", etc.
         let extensions = [".pdf", ".doc", ".docx", ".pptx", ".xlsx", ".csv", ".txt", ".md",
                           ".ppt", ".keynote", ".pages", ".numbers", ".zip"]
-        if let ext = extensions.first(where: { lower.contains($0) }) { return ext }
+        for ext in extensions {
+            if let range = lower.range(of: ext) {
+                let after = lower[range.upperBound...]
+                if after.isEmpty || !after.first!.isLetter {
+                    return ext
+                }
+            }
+        }
 
-        // Media / article references
-        let patterns = [
+        // Longer patterns are unambiguous — plain contains() is fine
+        let unambiguousPatterns = [
             "that article", "that post", "that paper", "that video", "that podcast",
             "that episode", "that book", "that thread", "that repo", "that link",
-            "the article", "the paper", "the report", "the deck", "the doc",
+            "the article", "the paper", "the report", "the deck",
             "the book", "the episode", "the podcast", "the video",
             "read that", "watch that", "listen to that",
-            "check out", "look at that", "look up",
+            "look at that", "look up",
             "link to", "that link",
             "read this", "watch this", "listen to this",
             "send me the", "share the", "share that",
             "based on the", "according to",
             "saw this", "saw that", "found this", "found that"
         ]
-        return firstMatch(in: lower, patterns: patterns)
+        if let m = firstMatch(in: lower, patterns: unambiguousPatterns) { return m }
+
+        // Short ambiguous patterns — require word boundary after the match
+        // so "the doc" matches "the doc." or "the doc " but not "the doctor"
+        let boundaryPatterns = ["the doc", "check out"]
+        for pattern in boundaryPatterns {
+            if let range = lower.range(of: pattern) {
+                let after = lower[range.upperBound...]
+                if after.isEmpty || !after.first!.isLetter {
+                    return pattern
+                }
+            }
+        }
+
+        return nil
     }
 
     private func matchPurchase(_ lower: String) -> String? {
@@ -330,33 +383,8 @@ final class TagService {
         return firstMatch(in: lower, patterns: patterns)
     }
 
-    private func matchPerson(_ text: String) -> String? {
-        // Look for capitalized name after social/action verbs
-        let verbPatterns = [
-            "with ", "tell ", "email ", "ask ", "call ", "meet ", "meeting ",
-            "message ", "contact ", "cc ", "talk to ", "update ", "inform ",
-            "remind ", "ping ", "text ", "dm ", "invite ", "introduce ",
-            "catch up with ", "sync with ", "from ", "to ", "for ",
-            "seeing ", "visiting ", "grabbing coffee with ", "lunch with ",
-            "dinner with ", "drinks with "
-        ]
-        let words = text.components(separatedBy: .whitespaces)
-
-        for (i, word) in words.enumerated() {
-            let lw = word.lowercased()
-            guard verbPatterns.contains(where: { lw.hasPrefix($0.trimmingCharacters(in: .whitespaces)) }) else { continue }
-            let nextIndex = i + 1
-            guard nextIndex < words.count else { continue }
-            let next = words[nextIndex].trimmingCharacters(in: .punctuationCharacters)
-            guard next.count > 1,
-                  next.first?.isUppercase == true,
-                  next.first?.isLetter == true,
-                  !commonWords.contains(next.lowercased())
-            else { continue }
-            return next
-        }
-        return nil
-    }
+    // matchPerson removed — person detection is handled entirely by the AI model
+    // which can distinguish human names from bands, places, and brands.
 
     private func matchActionRules(_ lower: String) -> String? {
         let patterns = [
@@ -447,6 +475,12 @@ final class TagService {
             }
             if output.isDecision && !skipping.contains(.decision) {
                 tags.append(EntryTag(type: .decision, status: .suggested, confidence: 0.78))
+            }
+            if output.isPerson && !skipping.contains(.person) {
+                tags.append(EntryTag(type: .person, status: .auto, confidence: 0.82))
+            }
+            if output.isReference && !skipping.contains(.reference) {
+                tags.append(EntryTag(type: .reference, status: .auto, confidence: 0.80))
             }
             return tags
         } catch {

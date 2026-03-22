@@ -81,6 +81,7 @@ struct TagChip: View {
         case .reference: return Color(red: 0.35, green: 0.52, blue: 0.72) // slate blue
         case .purchase:  return Color(red: 0.58, green: 0.28, blue: 0.82) // violet
         case .money:     return Color(red: 0.80, green: 0.60, blue: 0.08) // golden yellow
+        case .note:      return Color(red: 0.55, green: 0.55, blue: 0.55) // neutral grey
         }
     }
 }
