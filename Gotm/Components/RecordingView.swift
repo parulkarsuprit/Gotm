@@ -14,7 +14,13 @@ struct RecordingView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground))
+        .background(
+            LinearGradient(
+                colors: [Color(red: 0.91, green: 0.87, blue: 0.80), Color(red: 0.87, green: 0.83, blue: 0.76)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
     }
 }
 

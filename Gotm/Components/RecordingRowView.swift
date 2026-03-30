@@ -86,33 +86,29 @@ struct RecordingRowView: View {
                         .padding(.top, 8)
                 }
 
-                // Media thumbnails row — 8pt below transcript
-                if !entry.imageAttachments.isEmpty || !entry.fileAttachments.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(entry.imageAttachments) { attachment in
-                                if let uiImage = UIImage(contentsOfFile: attachment.url.path) {
-                                    Image(uiImage: uiImage)
-                                        .resizable()
-                                        .scaledToFill()
-                                        .frame(width: 56, height: 56)
-                                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                }
+                // Image mosaic
+                if !entry.imageAttachments.isEmpty {
+                    ImageMosaicView(attachments: entry.imageAttachments)
+                        .padding(.top, 8)
+                }
+
+                // File pills
+                if !entry.fileAttachments.isEmpty {
+                    VStack(spacing: 4) {
+                        ForEach(entry.fileAttachments) { attachment in
+                            HStack(spacing: 6) {
+                                Image(systemName: "doc.fill")
+                                    .font(.system(size: 12))
+                                Text(attachment.url.deletingPathExtension().lastPathComponent)
+                                    .font(.system(size: 13))
+                                    .lineLimit(1)
                             }
-                            ForEach(entry.fileAttachments) { attachment in
-                                HStack(spacing: 4) {
-                                    Image(systemName: "doc.fill")
-                                        .font(.caption)
-                                    Text(attachment.url.deletingPathExtension().lastPathComponent)
-                                        .font(.caption2)
-                                        .lineLimit(1)
-                                }
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 8)
-                                .background(Color(.systemFill))
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            }
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color(.systemFill))
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         }
                     }
                     .padding(.top, 8)
@@ -145,7 +141,7 @@ struct RecordingRowView: View {
             .padding(.bottom, cardInset)
         }
         .background(backgroundColor)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 38, style: .continuous))
         .shadow(color: Color.black.opacity(0.015), radius: 4, x: 0, y: 1)
         .animation(.easeInOut(duration: 0.2), value: isSelectable)
     }
@@ -165,6 +161,73 @@ struct RecordingRowView: View {
         let fmt = DateFormatter()
         fmt.dateFormat = "h:mm a"
         return fmt.string(from: date)
+    }
+}
+
+private struct ImageMosaicView: View {
+    let attachments: [MediaAttachment]
+    private let gap: CGFloat = 2
+
+    var body: some View {
+        let items = Array(attachments.prefix(4))
+        let overflow = attachments.count - 4
+
+        switch items.count {
+        case 1:
+            cell(items[0])
+                .frame(maxWidth: .infinity)
+                .frame(height: 200)
+        case 2:
+            HStack(spacing: gap) {
+                cell(items[0])
+                cell(items[1])
+            }
+            .frame(height: 160)
+        case 3:
+            HStack(spacing: gap) {
+                cell(items[0])
+                VStack(spacing: gap) {
+                    cell(items[1])
+                    cell(items[2])
+                }
+            }
+            .frame(height: 200)
+        default:
+            VStack(spacing: gap) {
+                HStack(spacing: gap) {
+                    cell(items[0])
+                    cell(items[1])
+                }
+                HStack(spacing: gap) {
+                    cell(items[2])
+                    ZStack {
+                        cell(items[3])
+                        if overflow > 0 {
+                            Color.black.opacity(0.45)
+                            Text("+\(overflow)")
+                                .font(.system(size: 24, weight: .semibold))
+                                .foregroundStyle(.white)
+                        }
+                    }
+                }
+            }
+            .frame(height: 200)
+        }
+    }
+
+    private func cell(_ attachment: MediaAttachment) -> some View {
+        Color.clear
+            .overlay {
+                if let uiImage = UIImage(contentsOfFile: attachment.url.path) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Color(.systemFill)
+                }
+            }
+            .clipped()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

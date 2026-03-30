@@ -6,33 +6,38 @@ final class TranscriptionService {
     static let shared = TranscriptionService()
 
     private var whisperKit: WhisperKit?
+    private var warmUpTask: Task<Void, Never>?
 
     private init() {
         Task { await warmUp() }
     }
 
-    // Pre-load the model as soon as the app launches so the first transcription is instant
     func warmUp() async {
-        guard whisperKit == nil else { return }
-        do {
-            whisperKit = try await WhisperKit(model: "small.en")
-            print("✅ [WhisperKit] Model loaded and ready")
-        } catch {
-            print("❌ [WhisperKit] Warm-up failed: \(error)")
+        if let existing = warmUpTask {
+            await existing.value
+            return
         }
+        let task = Task {
+            do {
+                self.whisperKit = try await WhisperKit(model: "small.en")
+                print("✅ [WhisperKit] Model loaded and ready")
+            } catch {
+                print("❌ [WhisperKit] Warm-up failed: \(error)")
+            }
+        }
+        warmUpTask = task
+        await task.value
     }
 
     func transcribe(fileURL: URL) async throws -> String {
         print("🎯 [WhisperKit] Starting transcription: \(fileURL.lastPathComponent)")
 
-        var kit: WhisperKit
-        if let existing = whisperKit {
-            kit = existing
-        } else {
-            print("⏳ [WhisperKit] Model not ready yet, loading now...")
-            let loaded = try await WhisperKit(model: "small.en")
-            whisperKit = loaded
-            kit = loaded
+        if whisperKit == nil {
+            print("⏳ [WhisperKit] Model not ready yet, waiting...")
+            await warmUp()
+        }
+        guard let kit = whisperKit else {
+            throw TranscriptionError.modelLoadFailed
         }
 
         let options = DecodingOptions(task: .transcribe, language: "en", withoutTimestamps: true)

@@ -107,7 +107,7 @@ struct ContentView: View {
     @State private var showPhotoPicker = false
     @State private var showFileImporter = false
     @State private var showCamera = false
-    @State private var photoPickerItem: PhotosPickerItem? = nil
+    @State private var photoPickerItems: [PhotosPickerItem] = []
     @State private var showAttachmentMenu = false
     @State private var showSearch = false
     @State private var searchText = ""
@@ -329,15 +329,17 @@ struct ContentView: View {
                     Task { await addImageToDraft(image) }
                 }
             }
-            .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItem, matching: .any(of: [.images, .videos]))
-            .onChange(of: photoPickerItem) { _, newItem in
-                guard let item = newItem else { return }
+            .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItems, maxSelectionCount: 10, matching: .any(of: [.images, .videos]))
+            .onChange(of: photoPickerItems) { _, newItems in
+                guard !newItems.isEmpty else { return }
                 Task {
-                    if let data = try? await item.loadTransferable(type: Data.self),
-                       let image = UIImage(data: data) {
-                        await addImageToDraft(image)
+                    for item in newItems {
+                        if let data = try? await item.loadTransferable(type: Data.self),
+                           let image = UIImage(data: data) {
+                            await addImageToDraft(image)
+                        }
                     }
-                    photoPickerItem = nil
+                    photoPickerItems = []
                 }
             }
             .fileImporter(
@@ -604,7 +606,7 @@ struct ContentView: View {
                         }
                         return result
                     }()
-                    LazyVStack(spacing: 12) {
+                    LazyVStack(spacing: 8) {
                         if recordings.isEmpty {
                             Text("No notes match \(searchText)")
                                 .font(.system(size: 15))
@@ -640,7 +642,6 @@ struct ContentView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 18)
                     .padding(.vertical, 6)
                 }
                 .scrollDismissesKeyboard(.immediately)
@@ -710,6 +711,7 @@ struct ContentView: View {
                 )
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
+
         }
     }
 
@@ -719,6 +721,7 @@ struct ContentView: View {
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
 
     // MARK: - Normal Recording
 
@@ -1568,3 +1571,4 @@ private extension View {
         modifier(SwipeToDelete(onDelete: action))
     }
 }
+
