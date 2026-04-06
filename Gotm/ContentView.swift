@@ -247,11 +247,11 @@ struct ContentView: View {
                     startPoint: .bottom,
                     endPoint: .top
                 )
-                .frame(height: 380)
+                .frame(height: 70)
                 
                 // Solid section - extends to bottom of screen
                 bgColor
-                    .frame(height: max(0, geo.size.height + geo.safeAreaInsets.bottom - 380))
+                    .frame(height: max(0, geo.size.height + geo.safeAreaInsets.bottom - 70))
             }
         }
         .ignoresSafeArea(edges: .bottom)
