@@ -236,24 +236,28 @@ struct ContentView: View {
         let showBackground = composeVM.draft.hasChips || composeVM.quickRecordState == .holding || composeVM.quickRecordState == .locked
         let bgColor = Color(red: 0.87, green: 0.83, blue: 0.76)
         
-        return GeometryReader { geo in
-            VStack(spacing: 0) {
-                // Gradient section above
-                LinearGradient(
-                    stops: [
-                        .init(color: bgColor, location: 0),
-                        .init(color: bgColor.opacity(0), location: 1.0)
-                    ],
-                    startPoint: .bottom,
-                    endPoint: .top
-                )
-                .frame(height: 120)
-                
-                // Solid section - fills remaining space to bottom
-                bgColor
-                    .frame(height: max(0, geo.size.height - 120))
-            }
+        // Fixed height - just enough for chips + bar + safe area
+        let totalHeight: CGFloat = 220
+        let solidHeight: CGFloat = 100
+        let gradientHeight = totalHeight - solidHeight
+        
+        return VStack(spacing: 0) {
+            // Gradient section at top (fades up)
+            LinearGradient(
+                stops: [
+                    .init(color: bgColor, location: 0),
+                    .init(color: bgColor.opacity(0), location: 1.0)
+                ],
+                startPoint: .bottom,
+                endPoint: .top
+            )
+            .frame(height: gradientHeight)
+            
+            // Solid section at bottom
+            bgColor
+                .frame(height: solidHeight)
         }
+        .frame(height: totalHeight)
         .ignoresSafeArea(edges: .bottom)
         .allowsHitTesting(false)
         .opacity(showBackground ? 1 : 0)
