@@ -236,10 +236,8 @@ struct ContentView: View {
         let showBackground = composeVM.draft.hasChips || composeVM.quickRecordState == .holding || composeVM.quickRecordState == .locked
         let bgColor = Color(red: 0.87, green: 0.83, blue: 0.76)
         
-        // Fixed total height - just enough for chips + bar + gradient fade
-        // Positioned at bottom, extends downward into safe area
         return VStack(spacing: 0) {
-            // Gradient fades upward (transparent at top, solid at bottom)
+            // Gradient fades upward
             LinearGradient(
                 stops: [
                     .init(color: bgColor, location: 0),
@@ -250,12 +248,9 @@ struct ContentView: View {
             )
             .frame(height: 70)
             
-            // Solid color below - extends to bottom edge
+            // Solid fills remaining height
             bgColor
-                .frame(height: 150)
         }
-        .frame(height: 220)
-        .frame(maxHeight: .infinity, alignment: .bottom)
         .ignoresSafeArea(edges: .bottom)
         .allowsHitTesting(false)
         .opacity(showBackground ? 1 : 0)
