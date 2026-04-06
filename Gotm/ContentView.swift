@@ -208,14 +208,7 @@ struct ContentView: View {
                     .transition(.opacity.combined(with: .offset(y: 6)))
             }
 
-            // Duration hint for normal recording
-            if recordingService.isRecording && composeVM.quickRecordState == .idle {
-                Text("Recording: \(formatDuration(recordingService.elapsedTime))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .transition(.opacity.combined(with: .offset(y: 6)))
-            }
+
 
             // Main compose bar
             ComposeBar(
@@ -239,21 +232,32 @@ struct ContentView: View {
     }
 
     private var bottomBarBackground: some View {
-        LinearGradient(
-            stops: [
-                .init(color: Color(red: 0.87, green: 0.83, blue: 0.76), location: 0),
-                .init(color: Color(red: 0.87, green: 0.83, blue: 0.76), location: 0.7),
-                .init(color: Color(red: 0.87, green: 0.83, blue: 0.76).opacity(0), location: 1.0)
-            ],
-            startPoint: .bottom,
-            endPoint: .top
-        )
-        .frame(height: 160)
-        .ignoresSafeArea(edges: .bottom)
+        // When in draft mode (has chips), use solid color all the way up
+        // Otherwise use gradient that fades out
+        let hasChips = composeVM.draft.hasChips || composeVM.quickRecordState == .holding || composeVM.quickRecordState == .locked
+        
+        return Group {
+            if hasChips {
+                // Solid background that extends all the way up
+                Color(red: 0.87, green: 0.83, blue: 0.76)
+                    .ignoresSafeArea(edges: .bottom)
+            } else {
+                // Gradient that fades out for normal state
+                LinearGradient(
+                    stops: [
+                        .init(color: Color(red: 0.87, green: 0.83, blue: 0.76), location: 0),
+                        .init(color: Color(red: 0.87, green: 0.83, blue: 0.76), location: 0.7),
+                        .init(color: Color(red: 0.87, green: 0.83, blue: 0.76).opacity(0), location: 1.0)
+                    ],
+                    startPoint: .bottom,
+                    endPoint: .top
+                )
+                .frame(height: 160)
+                .ignoresSafeArea(edges: .bottom)
+            }
+        }
         .allowsHitTesting(false)
-        .opacity(composeVM.quickRecordState == .holding || composeVM.quickRecordState == .locked || composeVM.draft.hasChips ? 1 : 0)
-        .animation(.easeInOut(duration: 0.25), value: composeVM.quickRecordState)
-        .animation(.easeInOut(duration: 0.25), value: composeVM.draft.hasChips)
+        .animation(.easeInOut(duration: 0.25), value: hasChips)
     }
 
     // MARK: - Callbacks
