@@ -232,21 +232,21 @@ struct ContentView: View {
     }
 
     private var bottomBarBackground: some View {
-        // When in draft mode (has chips), use solid color all the way up
-        // Otherwise use gradient that fades out
         let showBackground = composeVM.draft.hasChips || composeVM.quickRecordState == .holding || composeVM.quickRecordState == .locked
         
-        return Group {
-            if showBackground {
-                // Solid background that extends all the way up
-                Color(red: 0.87, green: 0.83, blue: 0.76)
-                    .ignoresSafeArea(edges: .bottom)
-            } else {
-                // Transparent when no background needed
-                Color.clear
-            }
-        }
+        return LinearGradient(
+            stops: [
+                .init(color: Color(red: 0.87, green: 0.83, blue: 0.76), location: 0),
+                .init(color: Color(red: 0.87, green: 0.83, blue: 0.76), location: 0.5),
+                .init(color: Color(red: 0.87, green: 0.83, blue: 0.76).opacity(0), location: 1.0)
+            ],
+            startPoint: .bottom,
+            endPoint: .top
+        )
+        .frame(height: 200)
+        .ignoresSafeArea(edges: .bottom)
         .allowsHitTesting(false)
+        .opacity(showBackground ? 1 : 0)
         .animation(.easeInOut(duration: 0.25), value: showBackground)
     }
 
