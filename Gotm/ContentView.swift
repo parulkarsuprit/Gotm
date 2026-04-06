@@ -238,25 +238,24 @@ struct ContentView: View {
         // Solid fills down to bottom edge
         return GeometryReader { geo in
             VStack(spacing: 0) {
-                // Gradient: short fade at top, then solid
-                // Covers more area with solid color for chips
+                // Gradient: hard fade at top, then solid
+                // Most area is solid to clearly cover chips
                 LinearGradient(
                     stops: [
                         .init(color: bgColor.opacity(0), location: 0),
-                        .init(color: bgColor.opacity(0.5), location: 0.3),
-                        .init(color: bgColor, location: 0.5),
+                        .init(color: bgColor, location: 0.2),
                         .init(color: bgColor, location: 1.0)
                     ],
                     startPoint: .top,
                     endPoint: .bottom
                 )
-                .frame(height: 160)
+                .frame(height: 200)
                 
                 // Solid fills remaining space to bottom
                 bgColor
                     .frame(height: geo.size.height + geo.safeAreaInsets.bottom)
             }
-            .frame(height: geo.size.height + geo.safeAreaInsets.bottom + 160)
+            .frame(height: geo.size.height + geo.safeAreaInsets.bottom + 200)
             .offset(y: -geo.safeAreaInsets.bottom)
         }
         .ignoresSafeArea(edges: .bottom)
