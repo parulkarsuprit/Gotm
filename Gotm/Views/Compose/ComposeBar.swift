@@ -162,7 +162,8 @@ struct ComposeBar: View {
             QuickRecordButton(
                 viewModel: viewModel,
                 isNormalRecording: isNormalRecording,
-                onNormalTap: { onNormalRecordTap() }
+                onNormalTap: { onNormalRecordTap() },
+                onStopQuickRecord: { onStopQuickRecord() }
             )
         }
     }

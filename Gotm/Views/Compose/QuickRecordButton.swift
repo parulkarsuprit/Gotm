@@ -4,6 +4,7 @@ struct QuickRecordButton: View {
     @Bindable var viewModel: ComposeViewModel
     let isNormalRecording: Bool
     let onNormalTap: () -> Void
+    let onStopQuickRecord: () -> Void
 
     var body: some View {
         ZStack {
@@ -47,7 +48,8 @@ struct QuickRecordButton: View {
                     let pressDuration = viewModel.quickPressStart.map { Date().timeIntervalSince($0) } ?? 1.0
                     viewModel.quickPressStart = nil
                     if viewModel.quickRecordState == .holding {
-                        // Will be handled by parent
+                        // Release to send
+                        onStopQuickRecord()
                     } else if viewModel.quickRecordState == .locked {
                         // Locked = hands-free, finger release does nothing
                     } else if pressDuration < 0.2 {

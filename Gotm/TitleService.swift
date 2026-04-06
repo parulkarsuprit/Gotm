@@ -48,9 +48,9 @@ final class TitleService {
         """
 
     private func runModel(prompt: String) async -> String {
-        guard #available(iOS 26.0, *) else { return "Note" }
+        guard #available(iOS 26.0, *) else { return extractTitleFallback(from: prompt) }
         let model = SystemLanguageModel.default
-        guard case .available = model.availability else { return "Note" }
+        guard case .available = model.availability else { return extractTitleFallback(from: prompt) }
 
         // First attempt — full instructions
         if let title = await attempt(instructions: instructions, prompt: prompt) {
@@ -63,7 +63,34 @@ final class TitleService {
             return title
         }
 
-        return "Note"
+        // Final fallback: extract from transcript
+        return extractTitleFallback(from: prompt)
+    }
+    
+    private func extractTitleFallback(from text: String) -> String {
+        // Clean up the text
+        let cleaned = text
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "  ", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Get first 6-8 words
+        let words = cleaned.split(separator: " ")
+        let wordCount = min(words.count, 8)
+        guard wordCount > 0 else { return "Note" }
+        
+        var titleWords = Array(words.prefix(wordCount))
+        
+        // Remove common filler words at the start
+        let fillerWords: Set<String> = ["um", "uh", "like", "so", "okay", "well", "right"]
+        while let first = titleWords.first?.lowercased(), fillerWords.contains(first) {
+            titleWords.removeFirst()
+        }
+        
+        guard !titleWords.isEmpty else { return "Note" }
+        
+        let title = titleWords.joined(separator: " ")
+        return applyTitleCase(String(title))
     }
 
     private func attempt(instructions: String, prompt: String) async -> String? {
@@ -114,15 +141,28 @@ final class TitleService {
         let badPrefixes = [
             "i'm sorry", "i am sorry", "i cannot", "i can't", "as a chatbot",
             "as a language model", "as an ai", "certainly!", "sure!", "of course!",
-            "i'd be happy", "i would be happy", "i apologize", "here is", "here's"
+            "i'd be happy", "i would be happy", "i apologize", "here is", "here's",
+            "sorry, i cannot", "sorry, i can't", "sorry i cannot", "sorry i can't",
+            "i'm unable to", "i am unable to", "unable to assist", "cannot assist",
+            "i'm not able to", "i am not able to"
         ]
         if badPrefixes.contains(where: { lower.hasPrefix($0) }) { return true }
+        
+        // Contains refusal phrases anywhere
+        let refusalPhrases = [
+            "cannot assist", "can't assist", "unable to assist",
+            "sorry, i cannot", "sorry, i can't", "not able to assist"
+        ]
+        if refusalPhrases.contains(where: { lower.contains($0) }) { return true }
 
         // Titles must be a single line
         if title.contains("\n") { return true }
 
         // Titles must not exceed 12 words
         if title.split(separator: " ").count > 12 { return true }
+        
+        // Must not be too short
+        if title.count < 3 { return true }
 
         return false
     }
