@@ -233,19 +233,23 @@ struct ContentView: View {
 
     private var bottomBarBackground: some View {
         let showBackground = composeVM.draft.hasChips || composeVM.quickRecordState == .holding || composeVM.quickRecordState == .locked
+        let bgColor = Color(red: 0.87, green: 0.83, blue: 0.76)
         
-        return GeometryReader { geo in
+        return VStack(spacing: 0) {
+            // Gradient section above the bar
             LinearGradient(
                 stops: [
-                    .init(color: Color(red: 0.87, green: 0.83, blue: 0.76), location: 0),
-                    .init(color: Color(red: 0.87, green: 0.83, blue: 0.76), location: 0.4),
-                    .init(color: Color(red: 0.87, green: 0.83, blue: 0.76).opacity(0), location: 1.0)
+                    .init(color: bgColor, location: 0),
+                    .init(color: bgColor.opacity(0), location: 1.0)
                 ],
                 startPoint: .bottom,
                 endPoint: .top
             )
-            .frame(height: geo.size.height + geo.safeAreaInsets.bottom + 100)
-            .offset(y: -geo.safeAreaInsets.bottom)
+            .frame(height: 120)
+            
+            // Solid section at the bottom (below the bar)
+            bgColor
+                .frame(height: 100)
         }
         .ignoresSafeArea(edges: .bottom)
         .allowsHitTesting(false)
