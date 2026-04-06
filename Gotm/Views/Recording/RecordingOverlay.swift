@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct RecordingView: View {
+struct RecordingOverlay: View {
     let level: Double
 
     var body: some View {
@@ -77,4 +77,3 @@ private struct WaveformView: View {
         }
     }
 }
-

@@ -1,7 +1,6 @@
 import SwiftUI
-import UIKit
 
-struct RecordingRowView: View {
+struct RecordingCard: View {
     let entry: RecordingEntry
     let index: Int
     let isSelectable: Bool
@@ -13,7 +12,6 @@ struct RecordingRowView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-
             // Index / selection indicator
             if isSelectable {
                 SelectionIndicator(isSelected: isSelected)
@@ -30,12 +28,9 @@ struct RecordingRowView: View {
                     .padding(.top, 4)
             }
 
-            // Main content — left aligned
-            // paddingBottom reserves space so content never overlaps the pinned chip overlay
-            // chip height ~28pt + cardInset gap = ~48pt minimum clearance
+            // Main content
             VStack(alignment: .leading, spacing: 0) {
-
-                // Row 1: title + timestamp
+                // Title + timestamp
                 HStack(alignment: .top, spacing: 8) {
                     if entry.isTitleLoading {
                         Text("Loading…")
@@ -59,7 +54,7 @@ struct RecordingRowView: View {
                     .fixedSize()
                 }
 
-                // Transcript / text preview — natural height, 8pt below title
+                // Transcript preview
                 if isTranscribing {
                     HStack(spacing: 5) {
                         ProgressView().scaleEffect(0.65)
@@ -112,13 +107,13 @@ struct RecordingRowView: View {
                     .padding(.top, 8)
                 }
             }
-            .padding(.bottom, 48) // clears pinned chip overlay (chip ~28pt + 20pt gap)
+            .padding(.bottom, 48) // clears pinned chip overlay
         }
         .padding(.top, cardInset)
         .padding(.bottom, cardInset)
         .padding(.leading, 12)
         .padding(.trailing, 20)
-        // Chips pinned to bottom — same inset from bottom edge as title has from top edge
+        // Chips pinned to bottom
         .overlay(alignment: .bottomLeading) {
             HStack(spacing: 6) {
                 ForEach(Array(entry.prioritisedTags.prefix(2))) { tag in
@@ -144,7 +139,6 @@ struct RecordingRowView: View {
         .animation(.easeInOut(duration: 0.2), value: isSelectable)
     }
 
-
     private func relativeDayText(from date: Date) -> String {
         let calendar = Calendar.current
         if calendar.isDateInToday(date) { return "Today" }
@@ -162,72 +156,7 @@ struct RecordingRowView: View {
     }
 }
 
-private struct ImageMosaicView: View {
-    let attachments: [MediaAttachment]
-    private let gap: CGFloat = 2
-
-    var body: some View {
-        let items = Array(attachments.prefix(4))
-        let overflow = attachments.count - 4
-
-        switch items.count {
-        case 1:
-            cell(items[0])
-                .frame(maxWidth: .infinity)
-                .frame(height: 200)
-        case 2:
-            HStack(spacing: gap) {
-                cell(items[0])
-                cell(items[1])
-            }
-            .frame(height: 160)
-        case 3:
-            HStack(spacing: gap) {
-                cell(items[0])
-                VStack(spacing: gap) {
-                    cell(items[1])
-                    cell(items[2])
-                }
-            }
-            .frame(height: 200)
-        default:
-            VStack(spacing: gap) {
-                HStack(spacing: gap) {
-                    cell(items[0])
-                    cell(items[1])
-                }
-                HStack(spacing: gap) {
-                    cell(items[2])
-                    ZStack {
-                        cell(items[3])
-                        if overflow > 0 {
-                            Color.black.opacity(0.45)
-                            Text("+\(overflow)")
-                                .font(.system(size: 24, weight: .semibold))
-                                .foregroundStyle(.white)
-                        }
-                    }
-                }
-            }
-            .frame(height: 200)
-        }
-    }
-
-    private func cell(_ attachment: MediaAttachment) -> some View {
-        Color.clear
-            .overlay {
-                if let uiImage = UIImage(contentsOfFile: attachment.url.path) {
-                    Image(uiImage: uiImage)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    Color(.systemFill)
-                }
-            }
-            .clipped()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
+// MARK: - Selection Indicator
 
 private struct SelectionIndicator: View {
     let isSelected: Bool
