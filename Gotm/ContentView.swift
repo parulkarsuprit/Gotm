@@ -233,25 +233,29 @@ struct ContentView: View {
         let showBackground = composeVM.draft.hasChips || composeVM.quickRecordState == .holding || composeVM.quickRecordState == .locked
         let bgColor = Color(red: 0.87, green: 0.83, blue: 0.76)
         
-        // Fixed size background - 70pt gradient + 120pt solid = 190pt total
-        // Extends into safe area at bottom
-        return VStack(spacing: 0) {
-            // Gradient at top
-            LinearGradient(
-                stops: [
-                    .init(color: bgColor, location: 0),
-                    .init(color: bgColor.opacity(0), location: 1.0)
-                ],
-                startPoint: .bottom,
-                endPoint: .top
-            )
-            .frame(height: 70)
-            
-            // Solid at bottom
-            bgColor
-                .frame(height: 120)
+        // Background fills the container from bottom up
+        // Gradient fades from solid (at bar level) to transparent
+        // Solid fills down to bottom edge
+        return GeometryReader { geo in
+            VStack(spacing: 0) {
+                // Top is transparent, bottom of this section is solid
+                LinearGradient(
+                    stops: [
+                        .init(color: bgColor.opacity(0), location: 0),
+                        .init(color: bgColor, location: 1.0)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 70)
+                
+                // Solid fills remaining space to bottom
+                bgColor
+                    .frame(height: geo.size.height + geo.safeAreaInsets.bottom)
+            }
+            .frame(height: geo.size.height + geo.safeAreaInsets.bottom + 70)
+            .offset(y: -geo.safeAreaInsets.bottom)
         }
-        .frame(height: 190)
         .ignoresSafeArea(edges: .bottom)
         .allowsHitTesting(false)
         .opacity(showBackground ? 1 : 0)
