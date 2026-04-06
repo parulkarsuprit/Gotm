@@ -187,43 +187,44 @@ struct ContentView: View {
     // MARK: - Bottom Bar
 
     private func bottomBar(showChips: Bool, isNormalRecording: Bool) -> some View {
-        VStack(spacing: 8) {
-            // Chips strip
-            if showChips {
-                DraftChipsView(
-                    audioItems: composeVM.draft.audioItems,
-                    attachments: composeVM.draft.attachments,
-                    onRemoveAudio: { composeVM.draft.removeAudioItem(id: $0) },
-                    onRemoveAttachment: { composeVM.draft.removeAttachment(id: $0) }
-                )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-
-            // Quick record hint
-            if composeVM.quickRecordState == .holding || composeVM.quickRecordState == .locked {
-                Text(composeVM.quickRecordState == .locked ? "Stop recording to send" : "Release to send")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .transition(.opacity.combined(with: .offset(y: 6)))
-            }
-
-
-
-            // Main compose bar
-            ComposeBar(
-                viewModel: composeVM,
-                isTextFieldFocused: $isTextFieldFocused,
-                isShowingRecordingUI: isShowingRecordingUI,
-                onNormalRecordTap: { handleNormalRecordTap() },
-                onShowPermissionAlert: { showingPermissionAlert = true },
-                onStopQuickRecord: { handleQuickRecordStop() }
-            )
-        }
-        .padding(.horizontal, 18)
-        .padding(.bottom, 8)
-        .background(alignment: .bottom) {
+        ZStack(alignment: .bottom) {
+            // Background fills entire safe area
             bottomBarBackground
+            
+            // Content on top
+            VStack(spacing: 8) {
+                // Chips strip
+                if showChips {
+                    DraftChipsView(
+                        audioItems: composeVM.draft.audioItems,
+                        attachments: composeVM.draft.attachments,
+                        onRemoveAudio: { composeVM.draft.removeAudioItem(id: $0) },
+                        onRemoveAttachment: { composeVM.draft.removeAttachment(id: $0) }
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
+                // Quick record hint
+                if composeVM.quickRecordState == .holding || composeVM.quickRecordState == .locked {
+                    Text(composeVM.quickRecordState == .locked ? "Stop recording to send" : "Release to send")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .transition(.opacity.combined(with: .offset(y: 6)))
+                }
+
+                // Main compose bar
+                ComposeBar(
+                    viewModel: composeVM,
+                    isTextFieldFocused: $isTextFieldFocused,
+                    isShowingRecordingUI: isShowingRecordingUI,
+                    onNormalRecordTap: { handleNormalRecordTap() },
+                    onShowPermissionAlert: { showingPermissionAlert = true },
+                    onStopQuickRecord: { handleQuickRecordStop() }
+                )
+            }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 8)
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: showChips)
         .animation(.easeInOut(duration: 0.18), value: isNormalRecording)
@@ -235,21 +236,23 @@ struct ContentView: View {
         let showBackground = composeVM.draft.hasChips || composeVM.quickRecordState == .holding || composeVM.quickRecordState == .locked
         let bgColor = Color(red: 0.87, green: 0.83, blue: 0.76)
         
-        return VStack(spacing: 0) {
-            // Gradient section above the bar
-            LinearGradient(
-                stops: [
-                    .init(color: bgColor, location: 0),
-                    .init(color: bgColor.opacity(0), location: 1.0)
-                ],
-                startPoint: .bottom,
-                endPoint: .top
-            )
-            .frame(height: 120)
-            
-            // Solid section at the bottom (below the bar)
-            bgColor
-                .frame(height: 100)
+        return GeometryReader { geo in
+            VStack(spacing: 0) {
+                // Gradient section above
+                LinearGradient(
+                    stops: [
+                        .init(color: bgColor, location: 0),
+                        .init(color: bgColor.opacity(0), location: 1.0)
+                    ],
+                    startPoint: .bottom,
+                    endPoint: .top
+                )
+                .frame(height: 120)
+                
+                // Solid section - fills remaining space to bottom
+                bgColor
+                    .frame(height: max(0, geo.size.height - 120))
+            }
         }
         .ignoresSafeArea(edges: .bottom)
         .allowsHitTesting(false)
