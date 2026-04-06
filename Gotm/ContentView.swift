@@ -238,7 +238,7 @@ struct ContentView: View {
         
         return GeometryReader { geo in
             VStack(spacing: 0) {
-                // Small gradient section at top - just for chips area
+                // Gradient section at top
                 LinearGradient(
                     stops: [
                         .init(color: bgColor, location: 0),
@@ -247,11 +247,11 @@ struct ContentView: View {
                     startPoint: .bottom,
                     endPoint: .top
                 )
-                .frame(height: 80)
+                .frame(height: 380)
                 
                 // Solid section - extends to bottom of screen
                 bgColor
-                    .frame(height: geo.size.height + geo.safeAreaInsets.bottom)
+                    .frame(height: max(0, geo.size.height + geo.safeAreaInsets.bottom - 380))
             }
         }
         .ignoresSafeArea(edges: .bottom)
