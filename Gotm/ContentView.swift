@@ -234,16 +234,19 @@ struct ContentView: View {
     private var bottomBarBackground: some View {
         let showBackground = composeVM.draft.hasChips || composeVM.quickRecordState == .holding || composeVM.quickRecordState == .locked
         
-        return LinearGradient(
-            stops: [
-                .init(color: Color(red: 0.87, green: 0.83, blue: 0.76), location: 0),
-                .init(color: Color(red: 0.87, green: 0.83, blue: 0.76), location: 0.5),
-                .init(color: Color(red: 0.87, green: 0.83, blue: 0.76).opacity(0), location: 1.0)
-            ],
-            startPoint: .bottom,
-            endPoint: .top
-        )
-        .frame(height: 200)
+        return GeometryReader { geo in
+            LinearGradient(
+                stops: [
+                    .init(color: Color(red: 0.87, green: 0.83, blue: 0.76), location: 0),
+                    .init(color: Color(red: 0.87, green: 0.83, blue: 0.76), location: 0.4),
+                    .init(color: Color(red: 0.87, green: 0.83, blue: 0.76).opacity(0), location: 1.0)
+                ],
+                startPoint: .bottom,
+                endPoint: .top
+            )
+            .frame(height: geo.size.height + geo.safeAreaInsets.bottom + 100)
+            .offset(y: -geo.safeAreaInsets.bottom)
+        }
         .ignoresSafeArea(edges: .bottom)
         .allowsHitTesting(false)
         .opacity(showBackground ? 1 : 0)
