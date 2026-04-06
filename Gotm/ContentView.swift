@@ -235,29 +235,27 @@ struct ContentView: View {
     private var bottomBarBackground: some View {
         let showBackground = composeVM.draft.hasChips || composeVM.quickRecordState == .holding || composeVM.quickRecordState == .locked
         let bgColor = Color(red: 0.87, green: 0.83, blue: 0.76)
-        
-        // Total height: just enough for bar + chips + small gradient
-        let totalHeight: CGFloat = 180
         let gradientHeight: CGFloat = 70
-        let solidHeight = totalHeight - gradientHeight
         
-        return VStack(spacing: 0) {
-            // Gradient at top (fades up)
-            LinearGradient(
-                stops: [
-                    .init(color: bgColor, location: 0),
-                    .init(color: bgColor.opacity(0), location: 1.0)
-                ],
-                startPoint: .bottom,
-                endPoint: .top
-            )
-            .frame(height: gradientHeight)
-            
-            // Solid at bottom (extends to screen edge via safe area)
-            bgColor
-                .frame(height: solidHeight)
+        return GeometryReader { geo in
+            VStack(spacing: 0) {
+                // Gradient at top (fades up)
+                LinearGradient(
+                    stops: [
+                        .init(color: bgColor, location: 0),
+                        .init(color: bgColor.opacity(0), location: 1.0)
+                    ],
+                    startPoint: .bottom,
+                    endPoint: .top
+                )
+                .frame(height: gradientHeight)
+                
+                // Solid at bottom - fills all remaining space to edge
+                bgColor
+                    .frame(maxHeight: .infinity)
+            }
+            .frame(height: geo.size.height + geo.safeAreaInsets.bottom)
         }
-        .frame(height: totalHeight)
         .ignoresSafeArea(edges: .bottom)
         .allowsHitTesting(false)
         .opacity(showBackground ? 1 : 0)
