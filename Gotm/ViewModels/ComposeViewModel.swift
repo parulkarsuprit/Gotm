@@ -79,8 +79,8 @@ enum QuickRecordState: Equatable {
 @Observable
 final class ComposeViewModel {
     // MARK: - Dependencies
-    private let recordingService = RecordingService.shared
-    private let transcriptionService = TranscriptionService.shared
+    let recordingService = RecordingService.shared
+    let transcriptionService = TranscriptionService.shared
     var onSubmit: ((ComposeDraft) -> Void)?
     var onRequestPermission: (() -> Void)?
 
@@ -320,7 +320,15 @@ final class ComposeViewModel {
 
     // MARK: - Validation
 
+    static func isValidTranscriptStatic(_ text: String) -> Bool {
+        return isValidTranscriptInternal(text)
+    }
+
     private func isValidTranscript(_ text: String) -> Bool {
+        return Self.isValidTranscriptInternal(text)
+    }
+
+    private static func isValidTranscriptInternal(_ text: String) -> Bool {
         var result = ""
         var depth = 0
         for char in text {

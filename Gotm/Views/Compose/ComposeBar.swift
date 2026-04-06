@@ -4,6 +4,7 @@ struct ComposeBar: View {
     @Bindable var viewModel: ComposeViewModel
     @FocusState.Binding var isTextFieldFocused: Bool
     let isShowingRecordingUI: Bool
+    let onNormalRecordTap: () -> Void
     let onShowPermissionAlert: () -> Void
     let onStopQuickRecord: () -> Void
 
@@ -161,7 +162,7 @@ struct ComposeBar: View {
             QuickRecordButton(
                 viewModel: viewModel,
                 isNormalRecording: isNormalRecording,
-                onNormalTap: { onShowPermissionAlert() }
+                onNormalTap: { onNormalRecordTap() }
             )
         }
     }

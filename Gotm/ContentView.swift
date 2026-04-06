@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var store = RecordingStore()
     @State private var composeVM = ComposeViewModel()
     @State private var feedVM = FeedViewModel()
+    @State private var recordingService = RecordingService.shared
 
     // MARK: - Local State
     @State private var isShowingRecordingUI = false
@@ -22,7 +23,7 @@ struct ContentView: View {
     // MARK: - Body
 
     var body: some View {
-        let isNormalRecording = (isShowingRecordingUI || composeVM.isRecording) && composeVM.quickRecordState == .idle
+        let isNormalRecording = (isShowingRecordingUI || recordingService.isRecording) && composeVM.quickRecordState == .idle
         let showChips = composeVM.draft.hasChips && !isNormalRecording && composeVM.quickRecordState == .idle
 
         NavigationStack {
@@ -207,11 +208,21 @@ struct ContentView: View {
                     .transition(.opacity.combined(with: .offset(y: 6)))
             }
 
+            // Duration hint for normal recording
+            if recordingService.isRecording && composeVM.quickRecordState == .idle {
+                Text("Recording: \(formatDuration(recordingService.elapsedTime))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .transition(.opacity.combined(with: .offset(y: 6)))
+            }
+
             // Main compose bar
             ComposeBar(
                 viewModel: composeVM,
                 isTextFieldFocused: $isTextFieldFocused,
                 isShowingRecordingUI: isShowingRecordingUI,
+                onNormalRecordTap: { handleNormalRecordTap() },
                 onShowPermissionAlert: { showingPermissionAlert = true },
                 onStopQuickRecord: { handleQuickRecordStop() }
             )
@@ -265,6 +276,72 @@ struct ContentView: View {
             feedVM.toggleSelection(for: entry.id)
         } else {
             feedVM.viewingEntry = entry
+        }
+    }
+
+    private func handleNormalRecordTap() {
+        // Stop if already recording
+        if composeVM.isRecording || isShowingRecordingUI {
+            stopNormalRecording()
+            return
+        }
+
+        Task {
+            let permission = AVAudioSession.sharedInstance().recordPermission
+            switch permission {
+            case .undetermined:
+                let granted = await composeVM.recordingService.requestPermission()
+                if granted {
+                    await startNormalRecording()
+                } else {
+                    showingPermissionAlert = true
+                }
+            case .denied:
+                showingPermissionAlert = true
+            case .granted:
+                await startNormalRecording()
+            @unknown default:
+                showingPermissionAlert = true
+            }
+        }
+    }
+
+    private func startNormalRecording() async {
+        isShowingRecordingUI = true
+        await Task.yield()
+        do {
+            try composeVM.recordingService.startRecording()
+            composeVM.transcriptionService.startStreaming()
+            isShowingRecordingUI = false
+        } catch {
+            isShowingRecordingUI = false
+            showingPermissionAlert = true
+        }
+    }
+
+    private func stopNormalRecording() {
+        isShowingRecordingUI = false
+        guard let item = composeVM.stopNormalRecording() else { return }
+        
+        // Process the recording
+        Task {
+            do {
+                let transcript = try await composeVM.transcriptionService.transcribe(fileURL: item.url)
+                
+                if ComposeViewModel.isValidTranscriptStatic(transcript) {
+                    // Update the draft item with transcript
+                    if let idx = composeVM.draft.audioItems.firstIndex(where: { $0.id == item.id }) {
+                        composeVM.draft.audioItems[idx].transcript = transcript
+                        composeVM.draft.audioItems[idx].isTranscribing = false
+                    }
+                } else {
+                    // Remove invalid recording
+                    composeVM.draft.removeAudioItem(id: item.id)
+                }
+            } catch {
+                print("❌ [Normal Recording] Transcription error: \(error.localizedDescription)")
+                composeVM.draft.removeAudioItem(id: item.id)
+            }
         }
     }
 
@@ -348,6 +425,13 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Helpers
+
+    private func formatDuration(_ duration: TimeInterval) -> String {
+        let t = Int(duration.rounded())
+        return String(format: "%d:%02d", t / 60, t % 60)
     }
 }
 
