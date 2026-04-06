@@ -1,98 +1,129 @@
 import Foundation
 import FoundationModels
 
-@Generable
-struct TitleOutput {
-    @Guide(description: "A short title in title case, maximum 15 words, no punctuation at the end")
-    var title: String
-}
-
 @MainActor
 final class TitleService {
     static let shared = TitleService()
     private init() {}
 
-    /// Generates a title for a single transcript (used for individual clip titles).
     func generateTitle(for transcript: String) async -> String {
-        let words = transcript.split(separator: " ")
-        if words.count <= 8 {
-            return words.prefix(15).joined(separator: " ")
-        }
-        return await runModel(
-            instructions: """
-            You generate clear, descriptive titles for voice note transcriptions.
-            Rules:
-            - Maximum 15 words
-            - Capture the core idea or action
-            - Use title case
-            - No punctuation at the end
-            """,
-            prompt: "Title this voice note: \(transcript)",
-            fallback: fallbackTitle(from: transcript)
-        )
+        await runModel(prompt: transcript)
     }
 
-    /// Generates an entry-level title from one or more clip transcripts.
-    /// If clips cover unrelated topics, combines them as "Topic A + Topic B".
-    /// If clips are thematically related, finds a single common title.
     func generateEntryTitle(for transcripts: [String]) async -> String {
         guard !transcripts.isEmpty else { return "Note" }
-        if transcripts.count == 1 {
-            return await generateTitle(for: transcripts[0])
-        }
-
-        let combinedWordCount = transcripts.joined(separator: " ").split(separator: " ").count
-        if combinedWordCount <= 8 {
-            return fallbackTitle(from: transcripts.joined(separator: " "))
-        }
-
-        let numbered = transcripts.enumerated()
+        if transcripts.count == 1 { return await generateTitle(for: transcripts[0]) }
+        let combined = transcripts.enumerated()
             .map { "Recording \($0.offset + 1): \($0.element)" }
             .joined(separator: "\n")
-
-        return await runModel(
-            instructions: """
-            You generate clear, descriptive titles for combined voice note entries.
-            Rules:
-            - Maximum 15 words total
-            - Use title case
-            - No punctuation at the end
-            - If the recordings cover clearly different, unrelated topics, combine them as "Topic A + Topic B" (each part max 7 words)
-            - If the recordings share a common theme or are related, write one unified title that captures the theme
-            """,
-            prompt: "Title this combined voice note entry:\n\(numbered)",
-            fallback: fallbackTitle(from: transcripts[0])
-        )
+        return await runModel(prompt: combined)
     }
 
     // MARK: - Private
 
-    private func runModel(instructions: String, prompt: String, fallback: String) async -> String {
-        guard #available(iOS 26.0, *) else {
-            print("⚠️ [TitleService] iOS 26 not available — using fallback")
-            return fallback
-        }
+    private let instructions = """
+        You are an expert at distilling rambling, unstructured voice notes into sharp, memorable titles.
 
+        Voice notes are stream-of-consciousness speech — full of filler words, incomplete thoughts, and wandering sentences. Your job is to cut through the noise and find the single most important idea, then express it as a title that instantly recalls the note's purpose days later.
+
+        HOW TO EXTRACT THE TITLE:
+        1. Identify the core intent — is this a task, reminder, idea, decision, plan, observation, or piece of information?
+        2. Find the key subject — what person, project, place, object, or concept is at the centre?
+        3. Determine the action or angle — what needs to happen, what was decided, or what is the main point?
+        4. Construct the title as: [Action or Topic] + [Subject] + [Essential Context only if it fits]
+
+        TITLE RULES:
+        - Title Case: Capitalize All Major Words. Do not capitalize articles (a, an, the), short prepositions (in, on, at, for, of, to, with), or coordinating conjunctions (and, but, or) unless they are the first word
+        - 5–10 words ideal, 12 words absolute maximum
+        - No trailing punctuation of any kind
+        - Be specific — "Fix Checkout Crash on Payment Screen" beats "App Bug"
+        - Be concrete — "Call Dentist to Reschedule Tuesday Appointment" beats "Health Stuff"
+        - When there is a task or action, lead with the verb: "Book Flights", "Follow Up With", "Review Before"
+        - When it is information or an observation, lead with the topic: "Flight Details for Tokyo", "Meeting Notes from Product Review"
+        - When it is an idea, lead with the idea itself — not the word "Idea": "Offline Mode for the App", "Dark Theme for Settings Screen"
+        - If the note covers multiple topics, pick the dominant one — do not list them all
+        - Strip all filler: um, uh, like, so, basically, you know, right, okay, I mean, actually, literally
+
+        OUTPUT: Only the title. No explanation, no quotation marks, no extra text whatsoever.
+        """
+
+    private func runModel(prompt: String) async -> String {
+        guard #available(iOS 26.0, *) else { return "Note" }
         let model = SystemLanguageModel.default
-        guard case .available = model.availability else {
-            print("⚠️ [TitleService] Model unavailable: \(model.availability) — using fallback")
-            return fallback
+        guard case .available = model.availability else { return "Note" }
+
+        // First attempt — full instructions
+        if let title = await attempt(instructions: instructions, prompt: prompt) {
+            return title
         }
 
+        // Retry with a stripped-down prompt — guardrail may have fired on content in the instructions
+        let fallbackInstructions = "Generate a Title Case title (5–12 words, no trailing punctuation) that summarises this voice note. Output only the title."
+        if let title = await attempt(instructions: fallbackInstructions, prompt: prompt) {
+            return title
+        }
+
+        return "Note"
+    }
+
+    private func attempt(instructions: String, prompt: String) async -> String? {
+        guard #available(iOS 26.0, *) else { return nil }
         do {
             let session = LanguageModelSession(instructions: instructions)
-            let response = try await session.respond(to: prompt, generating: TitleOutput.self)
-            let title = response.content.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !title.isEmpty else { return fallback }
-            return title
+            let response = try await session.respond(to: prompt)
+            let raw = response.content
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet.punctuationCharacters.subtracting(CharacterSet(charactersIn: ")")))
+
+            guard !raw.isEmpty, !isGarbageTitle(raw) else { return nil }
+            return applyTitleCase(raw)
+        } catch let error as LanguageModelSession.GenerationError {
+            if case .guardrailViolation = error {
+                print("⚠️ [TitleService] Guardrail hit — retrying with minimal prompt")
+            } else {
+                print("⚠️ [TitleService] Generation error: \(error)")
+            }
+            return nil
         } catch {
-            print("⚠️ [TitleService] Model error, using fallback: \(error)")
-            return fallback
+            print("⚠️ [TitleService] Failed: \(error)")
+            return nil
         }
     }
 
-    private func fallbackTitle(from transcript: String) -> String {
-        let words = transcript.split(separator: " ")
-        return words.prefix(15).joined(separator: " ") + (words.count > 15 ? "…" : "")
+    private func applyTitleCase(_ text: String) -> String {
+        let neverCapitalize: Set<String> = [
+            "a", "an", "the",
+            "and", "but", "or", "nor", "so", "yet",
+            "in", "on", "at", "for", "of", "to", "with", "by", "from", "up", "out", "as"
+        ]
+        let words = text.components(separatedBy: " ").filter { !$0.isEmpty }
+        return words.enumerated().map { index, word in
+            let lower = word.lowercased()
+            // Always capitalize first and last word
+            if index == 0 || index == words.count - 1 {
+                return word.prefix(1).uppercased() + word.dropFirst()
+            }
+            return neverCapitalize.contains(lower) ? lower : word.prefix(1).uppercased() + word.dropFirst()
+        }.joined(separator: " ")
+    }
+
+    private func isGarbageTitle(_ title: String) -> Bool {
+        let lower = title.lowercased()
+
+        // Refusal or meta openers
+        let badPrefixes = [
+            "i'm sorry", "i am sorry", "i cannot", "i can't", "as a chatbot",
+            "as a language model", "as an ai", "certainly!", "sure!", "of course!",
+            "i'd be happy", "i would be happy", "i apologize", "here is", "here's"
+        ]
+        if badPrefixes.contains(where: { lower.hasPrefix($0) }) { return true }
+
+        // Titles must be a single line
+        if title.contains("\n") { return true }
+
+        // Titles must not exceed 12 words
+        if title.split(separator: " ").count > 12 { return true }
+
+        return false
     }
 }

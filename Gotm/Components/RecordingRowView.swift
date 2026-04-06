@@ -39,14 +39,12 @@ struct RecordingRowView: View {
                 HStack(alignment: .top, spacing: 8) {
                     if entry.isTitleLoading {
                         Text("Loading…")
-                            .font(.system(size: 20, weight: .medium))
-                            .kerning(-0.2)
+                            .font(.custom("InterTight-Regular", size: 30).weight(.medium))
                             .foregroundStyle(.secondary)
                             .lineLimit(nil)
                     } else {
                         Text(entry.name)
-                            .font(.system(size: 20, weight: .medium))
-                            .kerning(-0.2)
+                            .font(.custom("InterTight-Regular", size: 30).weight(.medium))
                             .lineLimit(nil)
                     }
                     Spacer(minLength: 4)
@@ -141,7 +139,7 @@ struct RecordingRowView: View {
             .padding(.bottom, cardInset)
         }
         .background(backgroundColor)
-        .clipShape(RoundedRectangle(cornerRadius: 38, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 42, style: .continuous))
         .shadow(color: Color.black.opacity(0.015), radius: 4, x: 0, y: 1)
         .animation(.easeInOut(duration: 0.2), value: isSelectable)
     }

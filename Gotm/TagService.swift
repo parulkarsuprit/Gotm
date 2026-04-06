@@ -1,34 +1,4 @@
 import Foundation
-import FoundationModels
-
-// MARK: - Foundation Models structured output
-
-@Generable
-struct TagIntentOutput {
-    @Guide(description: "True if the note describes a concrete task, next step, or action the person intends to do (e.g. 'I need to call Sarah', 'finish the report', 'send the email')")
-    var isAction: Bool
-
-    @Guide(description: "True if the note describes a scheduled commitment suited for a calendar: a meeting, call, appointment, or plan to meet/see someone at a specific time or day (e.g. 'meeting with John tomorrow', 'dentist next Tuesday', 'grabbing coffee with Sarah on Friday')")
-    var isEvent: Bool
-
-    @Guide(description: "True if the note contains a time-based nudge, deadline, or follow-up that is NOT a scheduled meeting — e.g. 'remind me to', 'don't forget', 'by Friday', 'follow up in two days', 'renew before end of month'")
-    var isReminder: Bool
-
-    @Guide(description: "True ONLY if the overall note is genuinely asking something or expressing uncertainty the user wants resolved — e.g. 'how do I do X', 'should we change Y', 'I wonder if Z'. A single question mark mid-sentence, a rhetorical filler like 'you know?', or casual punctuation does NOT make this true. The dominant intent of the note must be a question or open inquiry.")
-    var isQuestion: Bool
-
-    @Guide(description: "True if the note contains a creative idea, 'what if' exploration, insight, or non-actionable concept")
-    var isIdea: Bool
-
-    @Guide(description: "True if the note captures a firm decision or commitment that has been made ('we'll go with X', 'I decided', 'let's do this')")
-    var isDecision: Bool
-
-    @Guide(description: "True ONLY if a specific real human person is mentioned by name — e.g. 'John said', 'meeting with Sarah', 'ask Rahul'. Do NOT return true for band names (Nirvana), places (Bandra), companies (Apple), concepts, or any non-human proper noun. Only genuine human names count.")
-    var isPerson: Bool
-
-    @Guide(description: "True ONLY if the note explicitly refers to an external document, article, video, link, file, or piece of content the person wants to look up, share, or save — e.g. 'check out that article', 'send me the report', 'watch that video', 'here is the link'. Do NOT return true just because a word sounds like a file type or abbreviation (e.g. 'doctor', 'dock', 'documentation' do NOT count). The reference must be to an actual external resource.")
-    var isReference: Bool
-}
 
 // MARK: - TagService
 
@@ -44,15 +14,6 @@ final class TagService {
 
         // Layer 1: fast rule-based extractors (run synchronously, no AI cost)
         tags += ruleTags(for: text)
-
-        // Layer 2: Foundation Models for nuanced intent tags
-        // Run for any intent tag not already covered by rules
-        let existingTypes = Set(tags.map { $0.type })
-        let intentTypes: Set<TagType> = [.action, .event, .reminder, .question, .idea, .decision, .person, .reference]
-        let needsModel = !intentTypes.isSubset(of: existingTypes)
-        if needsModel {
-            tags += await modelIntentTags(for: text, skipping: existingTypes)
-        }
 
         // Conflict resolution: Event vs Reminder on same trigger span
         tags = resolveEventReminderConflict(tags)
@@ -434,59 +395,6 @@ final class TagService {
 
         // Different triggers → both are genuine, keep both
         return tags
-    }
-
-    // MARK: - Foundation Models intent layer
-
-    private func modelIntentTags(for text: String, skipping: Set<TagType>) async -> [EntryTag] {
-        guard #available(iOS 26.0, *) else { return [] }
-        let model = SystemLanguageModel.default
-        guard case .available = model.availability else { return [] }
-
-        do {
-            let session = LanguageModelSession(
-                instructions: """
-                You classify short voice or text notes into intent categories.
-                Be conservative — only return true when clearly evident in the text.
-                Voice notes often lack punctuation (no question marks), so infer intent from word choice.
-                """
-            )
-            let response = try await session.respond(
-                to: "Classify this note: \"\(text)\"",
-                generating: TagIntentOutput.self
-            )
-            let output = response.content
-            var tags: [EntryTag] = []
-
-            if output.isAction && !skipping.contains(.action) {
-                tags.append(EntryTag(type: .action, status: .suggested, confidence: 0.80))
-            }
-            if output.isEvent && !skipping.contains(.event) {
-                tags.append(EntryTag(type: .event, status: .suggested, confidence: 0.78))
-            }
-            if output.isReminder && !skipping.contains(.reminder) {
-                tags.append(EntryTag(type: .reminder, status: .suggested, confidence: 0.75))
-            }
-            if output.isQuestion && !skipping.contains(.question) {
-                tags.append(EntryTag(type: .question, status: .auto, confidence: 0.80))
-            }
-            if output.isIdea && !skipping.contains(.idea) {
-                tags.append(EntryTag(type: .idea, status: .auto, confidence: 0.82))
-            }
-            if output.isDecision && !skipping.contains(.decision) {
-                tags.append(EntryTag(type: .decision, status: .suggested, confidence: 0.78))
-            }
-            if output.isPerson && !skipping.contains(.person) {
-                tags.append(EntryTag(type: .person, status: .auto, confidence: 0.82))
-            }
-            if output.isReference && !skipping.contains(.reference) {
-                tags.append(EntryTag(type: .reference, status: .auto, confidence: 0.80))
-            }
-            return tags
-        } catch {
-            print("⚠️ [TagService] Model error: \(error.localizedDescription)")
-            return []
-        }
     }
 
     // MARK: - Helpers

@@ -753,6 +753,7 @@ struct ContentView: View {
             await Task.yield()
             do {
                 try recordingService.startRecording()
+                TranscriptionService.shared.startStreaming()
                 isShowingRecordingUI = false
             } catch {
                 isShowingRecordingUI = false
@@ -776,10 +777,12 @@ struct ContentView: View {
                 if pendingAudioItemIDs.contains(itemID), let entryID = pendingTranscriptionEntryID {
                     if Self.isValidTranscript(transcript) {
                         let entry = store.recordings.first(where: { $0.id == entryID })
-                        if entry?.transcript == nil {
+                        let isMainTranscript = entry?.transcript == nil
+                        let attachmentID = entry?.audioAttachments.first(where: { $0.transcript == nil })?.id
+                        if isMainTranscript {
                             store.updateTranscript(for: entryID, transcript: transcript)
-                        } else if let attachment = entry?.audioAttachments.first(where: { $0.transcript == nil }) {
-                            store.updateAttachment(for: entryID, attachmentID: attachment.id, transcript: transcript)
+                        } else if let attachmentID {
+                            store.updateAttachment(for: entryID, attachmentID: attachmentID, transcript: transcript)
                         }
                         Task {
                             let clipTitle = await TitleService.shared.generateTitle(for: transcript)
@@ -792,6 +795,28 @@ struct ContentView: View {
                                 store.updateAttachment(for: entryID, attachmentID: attachment.id, name: clipTitle)
                             }
                         }
+                        // Background stage 2: Deepgram for accuracy (~1s), then stage 3: AI smart formatting (~3s)
+                        Task { @MainActor in
+                            let base: String
+                            if let deepgram = await TranscriptionService.shared.refineWithDeepgram(fileURL: fileURL) {
+                                if isMainTranscript {
+                                    store.updateTranscript(for: entryID, transcript: deepgram)
+                                } else if let attachmentID {
+                                    store.updateAttachment(for: entryID, attachmentID: attachmentID, transcript: deepgram)
+                                }
+                                base = deepgram
+                            } else {
+                                base = transcript
+                            }
+                            let formatted = await TranscriptionService.shared.formatWithAI(base)
+                            if formatted != base {
+                                if isMainTranscript {
+                                    store.updateTranscript(for: entryID, transcript: formatted)
+                                } else if let attachmentID {
+                                    store.updateAttachment(for: entryID, attachmentID: attachmentID, transcript: formatted)
+                                }
+                            }
+                        }
                     }
                     pendingAudioItemIDs.remove(itemID)
                     if pendingAudioItemIDs.isEmpty {
@@ -800,11 +825,13 @@ struct ContentView: View {
                                 .compactMap { $0 }.filter { !$0.isEmpty }
                             if !allTranscripts.isEmpty {
                                 Task {
-                                    let title = await TitleService.shared.generateEntryTitle(for: allTranscripts)
-                                    store.updateName(for: entryID, name: title)
                                     let tagSource = allTranscripts.joined(separator: " ")
-                                    let tags = await TagService.shared.generateTags(for: tagSource)
-                                    store.updateTags(for: entryID, tags: tags)
+                                    let finalTitle = await TitleService.shared.generateEntryTitle(for: allTranscripts)
+                                    store.updateName(for: entryID, name: finalTitle)
+
+                                    async let tags = TagService.shared.generateTags(for: tagSource)
+                                    let finalTags = await tags
+                                    store.updateTags(for: entryID, tags: finalTags)
                                 }
                             }
                         }
@@ -859,6 +886,7 @@ struct ContentView: View {
                     quickRecordState = .holding
                 }
                 try recordingService.startRecording()
+                TranscriptionService.shared.startStreaming()
             } catch {
                 quickRecordState = .idle
                 showingPermissionAlert = true
@@ -921,11 +949,28 @@ struct ContentView: View {
                     quickRecordState = .idle
                 }
 
-                let title = await TitleService.shared.generateTitle(for: transcript)
-                store.updateName(for: entry.id, name: title)
-                store.updateAudioTitle(for: entry.id, title: title)
-                let tags = await TagService.shared.generateTags(for: transcript)
-                store.updateTags(for: entry.id, tags: tags)
+                // Fire refinement immediately — do NOT wait for title generation first
+                Task { @MainActor in
+                    let base: String
+                    if let deepgram = await TranscriptionService.shared.refineWithDeepgram(fileURL: fileURL) {
+                        store.updateTranscript(for: entry.id, transcript: deepgram)
+                        base = deepgram
+                    } else {
+                        base = transcript
+                    }
+                    let formatted = await TranscriptionService.shared.formatWithAI(base)
+                    if formatted != base {
+                        store.updateTranscript(for: entry.id, transcript: formatted)
+                    }
+                }
+
+                let finalTitle = await TitleService.shared.generateTitle(for: transcript)
+                store.updateName(for: entry.id, name: finalTitle)
+                store.updateAudioTitle(for: entry.id, title: finalTitle)
+
+                async let tags = TagService.shared.generateTags(for: transcript)
+                let finalTags = await tags
+                store.updateTags(for: entry.id, tags: finalTags)
             } catch {
                 print("❌ [QuickRecord] Transcription error: \(error.localizedDescription)")
                 try? FileManager.default.removeItem(at: fileURL)
@@ -1006,11 +1051,12 @@ struct ContentView: View {
             let titleSources = allTranscripts.isEmpty ? [textContent] : allTranscripts
 
             Task {
-                let title = await TitleService.shared.generateEntryTitle(for: titleSources)
-                store.updateName(for: entryID, name: title)
                 let tagSource = ([textContent] + allTranscripts).filter { !$0.isEmpty }.joined(separator: " ")
-                let tags = await TagService.shared.generateTags(for: tagSource)
-                store.updateTags(for: entryID, tags: tags)
+                async let title = TitleService.shared.generateEntryTitle(for: titleSources)
+                async let tags = TagService.shared.generateTags(for: tagSource)
+                let (finalTitle, finalTags) = await (title, tags)
+                store.updateName(for: entryID, name: finalTitle)
+                store.updateTags(for: entryID, tags: finalTags)
             }
             if let t = primaryAudio?.transcript, !t.isEmpty {
                 Task {

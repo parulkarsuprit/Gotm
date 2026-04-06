@@ -33,6 +33,8 @@
     </array>
     <key>NSMicrophoneUsageDescription</key>
     <string>This app needs microphone access to record voice memos.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>This app uses speech recognition to transcribe your voice notes.</string>
     <key>NSCameraUsageDescription</key>
     <string>Take photos to attach to your notes.</string>
     <key>NSPhotoLibraryUsageDescription</key>
@@ -52,5 +54,10 @@
     </array>
     <key>UIRequiresFullScreen</key>
     <true/>
+    <key>UIAppFonts</key>
+    <array>
+        <string>InterTight-VariableFont_wght.ttf</string>
+        <string>InterTight-Italic-VariableFont_wght.ttf</string>
+    </array>
 </dict>
 </plist>
