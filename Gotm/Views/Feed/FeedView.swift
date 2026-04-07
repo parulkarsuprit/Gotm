@@ -33,8 +33,13 @@ struct FeedView: View {
                                     isTranscribing: viewModel.transcribingIDs.contains(entry.id),
                                     backgroundColor: cardColor(for: entry, at: index)
                                 )
-                                .swipeToDelete { onDeleteEntry(entry) }
-                                .contentShape(Rectangle())
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    Button(role: .destructive) {
+                                        onDeleteEntry(entry)
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
                                 .onTapGesture {
                                     onTapEntry(entry)
                                 }
