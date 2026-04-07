@@ -5,9 +5,31 @@ import FoundationModels
 final class TitleService {
     static let shared = TitleService()
     private init() {}
+    
+    /// Track if title generation failed
+    private(set) var lastError: TitleError?
+    
+    enum TitleError: Error {
+        case modelUnavailable
+        case generationFailed
+        case emptyResult
+        
+        var message: String {
+            switch self {
+            case .modelUnavailable: return "AI features unavailable"
+            case .generationFailed: return "Could not generate title"
+            case .emptyResult: return "Empty transcript"
+            }
+        }
+    }
 
     func generateTitle(for transcript: String) async -> String {
-        await runModel(prompt: transcript)
+        lastError = nil
+        let result = await runModel(prompt: transcript)
+        if result == "Note" && !transcript.isEmpty {
+            lastError = .generationFailed
+        }
+        return result
     }
 
     func generateEntryTitle(for transcripts: [String]) async -> String {

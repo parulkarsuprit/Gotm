@@ -21,6 +21,8 @@ struct ContentView: View {
     @State private var recordingCheckTimer: Timer?
     @State private var recordingForEntryID: UUID?
     @State private var recordingItemID: UUID?
+    @State private var showingErrorAlert = false
+    @State private var errorMessage = ""
     @FocusState private var isTextFieldFocused: Bool
 
     // MARK: - Body
@@ -104,6 +106,11 @@ struct ContentView: View {
             } message: {
                 let minutes = Int(recordingDurationAtWarning / 60)
                 Text("You've been recording for \(minutes) minutes. Continue?")
+            }
+            .alert("Error", isPresented: $showingErrorAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(errorMessage)
             }
             .sheet(item: $feedVM.editingEntry) { entry in
                 RenameSheet(entry: entry) { newName in
@@ -301,6 +308,10 @@ struct ContentView: View {
             recordingDurationAtWarning = duration
             showingRecordingWarning = true
             stopRecordingCheckTimer()
+        }
+        composeVM.onShowError = { [self] message in
+            errorMessage = message
+            showingErrorAlert = true
         }
     }
     

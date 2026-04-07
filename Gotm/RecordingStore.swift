@@ -84,10 +84,16 @@ final class RecordingStore {
     static func saveMedia(_ data: Data, fileExtension ext: String, fileManager: FileManager = .default) throws -> URL {
         let dir = mediaDirectory(fileManager: fileManager)
         if !fileManager.fileExists(atPath: dir.path) {
-            try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+            // Create with encryption protection
+            try fileManager.createDirectory(
+                at: dir,
+                withIntermediateDirectories: true,
+                attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]
+            )
         }
         let url = dir.appending(path: UUID().uuidString + "." + ext)
-        try data.write(to: url, options: .atomic)
+        // Write with encryption
+        try data.write(to: url, options: [.atomic, .completeFileProtection])
         return url
     }
 
@@ -104,7 +110,12 @@ final class RecordingStore {
     private func ensureRecordingsDirectoryExists() {
         let directory = Self.recordingsDirectory(fileManager: fileManager)
         if !fileManager.fileExists(atPath: directory.path) {
-            try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            // Create with encryption protection
+            try? fileManager.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true,
+                attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]
+            )
         }
     }
 
@@ -147,9 +158,10 @@ final class RecordingStore {
         let url = recordingsFileURL()
         do {
             let data = try JSONEncoder().encode(recordings)
-            try data.write(to: url, options: [.atomic])
+            // Write with encryption - file is encrypted when device is locked
+            try data.write(to: url, options: [.atomic, .completeFileProtection])
         } catch {
-            return
+            print("❌ [RecordingStore] Save failed: \(error)")
         }
     }
 

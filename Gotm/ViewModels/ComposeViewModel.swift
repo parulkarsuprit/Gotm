@@ -97,11 +97,13 @@ final class ComposeViewModel {
     var onSubmit: ((ComposeDraft) -> Void)?
     var onRequestPermission: (() -> Void)?
     var onTranscriptUpdate: ((UUID, String) -> Void)?
+    var onShowError: ((String) -> Void)?
 
     // MARK: - State
     var draft = ComposeDraft()
     var quickRecordState: QuickRecordState = .idle
     var showAttachmentMenu = false
+    var lastError: String?
 
     // MARK: - Quick Record State
     var quickDragOffset: CGFloat = 0
@@ -131,10 +133,6 @@ final class ComposeViewModel {
     var showCamera = false
     var photoPickerItems: [PhotosPickerItem] = []
 
-    // MARK: - Submission Tracking
-    var pendingTranscriptionEntryID: UUID?
-    var pendingAudioItemIDs: Set<UUID> = []
-    
     // MARK: - Recording Duration Warning
     private var longRecordingWarningShown = false
     var onShowRecordingWarning: ((TimeInterval) -> Void)?
