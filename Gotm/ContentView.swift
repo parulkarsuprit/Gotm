@@ -248,13 +248,13 @@ struct ContentView: View {
                     startPoint: .top,
                     endPoint: .bottom
                 )
-                .frame(height: 260)
+                .frame(height: 300)
                 
                 // Solid fills remaining space to bottom
                 bgColor
                     .frame(height: geo.size.height + geo.safeAreaInsets.bottom)
             }
-            .frame(height: geo.size.height + geo.safeAreaInsets.bottom + 260)
+            .frame(height: geo.size.height + geo.safeAreaInsets.bottom + 300)
             .offset(y: -geo.safeAreaInsets.bottom)
         }
         .ignoresSafeArea(edges: .bottom)
