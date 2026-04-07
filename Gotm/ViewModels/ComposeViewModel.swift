@@ -81,6 +81,7 @@ final class ComposeViewModel {
     // MARK: - Dependencies
     let recordingService = RecordingService.shared
     let transcriptionService = TranscriptionService.shared
+    let rewriteSettings = RewriteSettings.shared
     var onSubmit: ((ComposeDraft) -> Void)?
     var onRequestPermission: (() -> Void)?
 
@@ -214,18 +215,22 @@ final class ComposeViewModel {
                     quickRecordState = .idle
                 }
 
-                // Fire refinement immediately
+                // Fire refinement immediately with context-aware formatting
                 Task { @MainActor in
                     let base: String
                     if let deepgram = await transcriptionService.refineWithDeepgram(fileURL: fileURL) {
-                        // Note: This will need to update the entry via callback
                         base = deepgram
                     } else {
                         base = transcript
                     }
-                    let formatted = await transcriptionService.formatWithAI(base)
+                    
+                    // Apply AI formatting with context
+                    let context = self.rewriteSettings.rewriteContext()
+                    let formatted = await transcriptionService.formatWithAI(base, context: context)
+                    
                     if formatted != base {
-                        // Update via callback
+                        // Update the entry with the formatted transcript
+                        RecordingStore.shared.updateTranscript(for: entry.id, transcript: formatted)
                     }
                 }
 

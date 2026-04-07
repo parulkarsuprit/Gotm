@@ -34,12 +34,12 @@ struct RecordingCard: View {
                 HStack(alignment: .top, spacing: 8) {
                     if entry.isTitleLoading {
                         Text("Loading…")
-                            .font(.custom("InterTight-Regular", size: 30).weight(.medium))
+                            .font(.system(size: 24, weight: .semibold, design: .default))
                             .foregroundStyle(.secondary)
                             .lineLimit(nil)
                     } else {
                         Text(entry.name)
-                            .font(.custom("InterTight-Regular", size: 30).weight(.medium))
+                            .font(.system(size: 24, weight: .semibold, design: .default))
                             .lineLimit(nil)
                     }
                     Spacer(minLength: 4)
