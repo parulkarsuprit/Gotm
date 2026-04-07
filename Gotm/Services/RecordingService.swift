@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import Observation
+import os
 
 @MainActor
 @Observable
@@ -28,8 +29,8 @@ final class RecordingService: NSObject {
     nonisolated(unsafe) private var audioFile: AVAudioFile?
     nonisolated(unsafe) private var converter: AVAudioConverter?
     nonisolated(unsafe) private var targetFormat: AVAudioFormat?
-    // Latest RMS level from tap — written on audio thread, read on main actor via timer.
-    nonisolated(unsafe) private var _latestLevel: Double = 0
+    // Latest RMS level from tap — thread-safe using lock
+    private let levelLock = OSAllocatedUnfairLock<Double>(initialState: 0)
 
     private var player: AVAudioPlayer?
     private var recordingStartTime: Date?
@@ -109,8 +110,9 @@ final class RecordingService: NSObject {
                 try? self.audioFile?.write(from: converted)
             }
 
-            // Update level meter (use original for responsiveness)
-            self._latestLevel = Self.computeLevel(buffer)
+            // Update level meter (use original for responsiveness) - thread-safe
+            let level = Self.computeLevel(buffer)
+            self.levelLock.withLock { $0 = level }
 
             // Stream converted buffer to SFSpeechRecognizer (primary)
             if let pcmCallback = self.onAudioPCMBuffer, let converted {
@@ -203,7 +205,8 @@ final class RecordingService: NSObject {
             if let start = self.recordingStartTime {
                 self.elapsedTime = Date().timeIntervalSince(start)
             }
-            let latest = self._latestLevel
+            // Thread-safe level reading
+            let latest = self.levelLock.withLock { $0 }
             self.recordingLevel = (self.recordingLevel * 0.7) + (latest * 0.3)
         }
     }

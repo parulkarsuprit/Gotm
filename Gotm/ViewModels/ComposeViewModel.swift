@@ -66,6 +66,18 @@ final class ComposeDraft {
             attachments.remove(at: idx)
         }
     }
+    
+    /// Clean up all files when draft is discarded
+    func cleanupAllFiles() {
+        for item in audioItems {
+            try? FileManager.default.removeItem(at: item.url)
+        }
+        for attachment in attachments {
+            try? FileManager.default.removeItem(at: attachment.url)
+        }
+        audioItems.removeAll()
+        attachments.removeAll()
+    }
 }
 
 enum QuickRecordState: Equatable {
@@ -122,7 +134,11 @@ final class ComposeViewModel {
     // MARK: - Submission Tracking
     var pendingTranscriptionEntryID: UUID?
     var pendingAudioItemIDs: Set<UUID> = []
-
+    
+    // MARK: - Recording Duration Warning
+    private var longRecordingWarningShown = false
+    var onShowRecordingWarning: ((TimeInterval) -> Void)?
+    
     // MARK: - Recording Actions
 
     func startQuickRecord() {
@@ -168,6 +184,35 @@ final class ComposeViewModel {
         UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
         quickDragOffset = 0
     }
+    
+    /// Call this periodically during recording to check duration
+    func checkRecordingDuration() {
+        let duration = recordingService.elapsedTime
+        let thirtyMinutes: TimeInterval = 30 * 60
+        
+        // Show warning at 30 minutes if not already shown
+        if duration >= thirtyMinutes && !longRecordingWarningShown {
+            longRecordingWarningShown = true
+            onShowRecordingWarning?(duration)
+        }
+        
+        // Auto-stop only in critical conditions
+        let batteryLevel = UIDevice.current.batteryLevel
+        let isLowBattery = batteryLevel > 0 && batteryLevel <= 0.10  // 10% or less
+        
+        if isLowBattery && duration > 60 {
+            // Stop recording to save battery, but only after at least 1 min
+            recordingService.stopRecording()
+            quickRecordState = .idle
+        }
+    }
+    
+    /// Call when user confirms to continue recording past warning
+    func continueRecording() {
+        // Just resets the flag so we don't show again immediately
+        // (we'll show again at 60 min, 90 min, etc.)
+        longRecordingWarningShown = false
+    }
 
     func stopQuickRecord(onComplete: @escaping (RecordingEntry?) -> Void) {
         guard quickRecordState == .holding || quickRecordState == .locked else { return }
@@ -193,58 +238,75 @@ final class ComposeViewModel {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
 
         Task {
-            do {
-                let transcript = try await transcriptionService.transcribe(fileURL: fileURL)
-                guard isValidTranscript(transcript) else {
-                    try? FileManager.default.removeItem(at: fileURL)
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                        quickRecordState = .idle
-                    }
-                    onComplete(nil)
-                    return
-                }
-
-                let entry = RecordingEntry(
-                    name: "Loading…",
-                    isTitleLoading: true,
-                    duration: duration,
-                    audioURL: fileURL,
-                    transcript: transcript
-                )
-
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                    quickRecordState = .idle
-                }
-
-                // Fire refinement immediately with context-aware formatting
-                Task { @MainActor in
-                    let base: String
-                    if let deepgram = await transcriptionService.refineWithDeepgram(fileURL: fileURL) {
-                        base = deepgram
-                    } else {
-                        base = transcript
-                    }
-                    
-                    // Apply AI formatting with context
-                    let context = self.rewriteSettings.rewriteContext()
-                    let formatted = await transcriptionService.formatWithAI(base, context: context)
-                    
-                    if formatted != base {
-                        // Update the entry with the formatted transcript via callback
-                        self.onTranscriptUpdate?(entry.id, formatted)
-                    }
-                }
-
-                onComplete(entry)
-            } catch {
-                print("❌ [QuickRecord] Transcription error: \(error.localizedDescription)")
+            // Try transcription with retry logic
+            let (transcript, success) = await transcribeWithRetry(fileURL: fileURL)
+            
+            guard success, isValidTranscript(transcript) else {
                 try? FileManager.default.removeItem(at: fileURL)
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                     quickRecordState = .idle
                 }
                 onComplete(nil)
+                return
+            }
+
+            let entry = RecordingEntry(
+                name: "Loading…",
+                isTitleLoading: true,
+                duration: duration,
+                audioURL: fileURL,
+                transcript: transcript
+            )
+
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                quickRecordState = .idle
+            }
+
+            // Fire refinement immediately with context-aware formatting
+            Task { @MainActor in
+                let base: String
+                if let deepgram = await transcriptionService.refineWithDeepgram(fileURL: fileURL) {
+                    base = deepgram
+                } else {
+                    base = transcript
+                }
+                
+                // Apply AI formatting with context
+                let context = self.rewriteSettings.rewriteContext()
+                let formatted = await transcriptionService.formatWithAI(base, context: context)
+                
+                if formatted != base {
+                    // Update the entry with the formatted transcript via callback
+                    self.onTranscriptUpdate?(entry.id, formatted)
+                }
+            }
+
+            onComplete(entry)
+        }
+    }
+    
+    /// Transcribe with up to 3 retry attempts (public for normal recording flow)
+    func transcribeWithRetry(fileURL: URL, maxRetries: Int = 3) async -> (transcript: String, success: Bool) {
+        var lastError: Error?
+        
+        for attempt in 1...maxRetries {
+            do {
+                let transcript = try await transcriptionService.transcribe(fileURL: fileURL)
+                return (transcript, true)
+            } catch {
+                lastError = error
+                print("⚠️ [Transcription] Attempt \(attempt)/\(maxRetries) failed: \(error.localizedDescription)")
+                
+                if attempt < maxRetries {
+                    // Wait before retry (exponential backoff: 1s, 2s, 4s)
+                    let delay = UInt64(pow(2.0, Double(attempt - 1)) * 1_000_000_000)
+                    try? await Task.sleep(nanoseconds: delay)
+                }
             }
         }
+        
+        print("❌ [Transcription] All \(maxRetries) attempts failed. Last error: \(lastError?.localizedDescription ?? "Unknown")")
+        return ("", false)
     }
 
     // MARK: - Normal Recording (for attachment flow)

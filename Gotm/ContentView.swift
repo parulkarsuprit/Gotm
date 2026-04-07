@@ -16,6 +16,9 @@ struct ContentView: View {
     // MARK: - Local State
     @State private var isShowingRecordingUI = false
     @State private var showingPermissionAlert = false
+    @State private var showingRecordingWarning = false
+    @State private var recordingDurationAtWarning: TimeInterval = 0
+    @State private var recordingCheckTimer: Timer?
     @State private var recordingForEntryID: UUID?
     @State private var recordingItemID: UUID?
     @FocusState private var isTextFieldFocused: Bool
@@ -90,6 +93,18 @@ struct ContentView: View {
             } message: {
                 Text("Enable microphone access in Settings to record voice memos.")
             }
+            .alert("Long Recording", isPresented: $showingRecordingWarning) {
+                Button("Stop Recording", role: .destructive) {
+                    handleQuickRecordStop()
+                }
+                Button("Continue") {
+                    composeVM.continueRecording()
+                    startRecordingCheckTimer()
+                }
+            } message: {
+                let minutes = Int(recordingDurationAtWarning / 60)
+                Text("You've been recording for \(minutes) minutes. Continue?")
+            }
             .sheet(item: $feedVM.editingEntry) { entry in
                 RenameSheet(entry: entry) { newName in
                     store.updateName(for: entry.id, name: newName)
@@ -109,6 +124,12 @@ struct ContentView: View {
                 maxSelectionCount: 10,
                 matching: .any(of: [.images, .videos])
             )
+            .onChange(of: composeVM.showPhotoPicker) { _, isPresented in
+                // Clear picker items when dismissed (memory safety)
+                if !isPresented {
+                    composeVM.photoPickerItems = []
+                }
+            }
             .onChange(of: composeVM.photoPickerItems) { _, newItems in
                 guard !newItems.isEmpty else { return }
                 Task {
@@ -127,6 +148,7 @@ struct ContentView: View {
         .preferredColorScheme(.light)
         .onAppear {
             setupCallbacks()
+            UIDevice.current.isBatteryMonitoringEnabled = true
         }
     }
 
@@ -275,6 +297,23 @@ struct ContentView: View {
         composeVM.onTranscriptUpdate = { [self] entryID, transcript in
             store.updateTranscript(for: entryID, transcript: transcript)
         }
+        composeVM.onShowRecordingWarning = { [self] duration in
+            recordingDurationAtWarning = duration
+            showingRecordingWarning = true
+            stopRecordingCheckTimer()
+        }
+    }
+    
+    private func startRecordingCheckTimer() {
+        stopRecordingCheckTimer()
+        recordingCheckTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { _ in
+            composeVM.checkRecordingDuration()
+        }
+    }
+    
+    private func stopRecordingCheckTimer() {
+        recordingCheckTimer?.invalidate()
+        recordingCheckTimer = nil
     }
 
     // MARK: - Actions
@@ -322,6 +361,7 @@ struct ContentView: View {
         do {
             try composeVM.recordingService.startRecording()
             composeVM.transcriptionService.startStreaming()
+            startRecordingCheckTimer()
             isShowingRecordingUI = false
         } catch {
             isShowingRecordingUI = false
@@ -331,31 +371,28 @@ struct ContentView: View {
 
     private func stopNormalRecording() {
         isShowingRecordingUI = false
+        stopRecordingCheckTimer()
         guard let item = composeVM.stopNormalRecording() else { return }
         
-        // Process the recording
+        // Process the recording with retry
         Task {
-            do {
-                let transcript = try await composeVM.transcriptionService.transcribe(fileURL: item.url)
-                
-                if ComposeViewModel.isValidTranscriptStatic(transcript) {
-                    // Update the draft item with transcript
-                    if let idx = composeVM.draft.audioItems.firstIndex(where: { $0.id == item.id }) {
-                        composeVM.draft.audioItems[idx].transcript = transcript
-                        composeVM.draft.audioItems[idx].isTranscribing = false
-                    }
-                } else {
-                    // Remove invalid recording
-                    composeVM.draft.removeAudioItem(id: item.id)
+            let (transcript, success) = await composeVM.transcribeWithRetry(fileURL: item.url)
+            
+            if success && ComposeViewModel.isValidTranscriptStatic(transcript) {
+                // Update the draft item with transcript
+                if let idx = composeVM.draft.audioItems.firstIndex(where: { $0.id == item.id }) {
+                    composeVM.draft.audioItems[idx].transcript = transcript
+                    composeVM.draft.audioItems[idx].isTranscribing = false
                 }
-            } catch {
-                print("❌ [Normal Recording] Transcription error: \(error.localizedDescription)")
+            } else {
+                // Remove invalid/failed recording
                 composeVM.draft.removeAudioItem(id: item.id)
             }
         }
     }
 
     private func handleQuickRecordStop() {
+        stopRecordingCheckTimer()
         composeVM.stopQuickRecord { entry in
             guard let entry = entry else { return }
             store.add(entry)
