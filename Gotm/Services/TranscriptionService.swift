@@ -577,7 +577,7 @@ final class TranscriptionService {
         }
         
         // Convert to JSON string
-        if let jsonData = try? JSONSerialization.data(withJSONObject: messageDict, options: .prettyPrint),
+        if let jsonData = try? JSONSerialization.data(withJSONObject: messageDict, options: .prettyPrinted),
            let jsonString = String(data: jsonData, encoding: .utf8) {
             return jsonString
         }
@@ -622,7 +622,7 @@ final class TranscriptionService {
         if response.count > original.count * 4 { return true }
         
         // Response is much shorter than input (significant content was lost)
-        if response.count < original.count * 0.3 && original.count > 50 { return true }
+        if response.count < Int(Double(original.count) * 0.3) && original.count > 50 { return true }
 
         return false
     }

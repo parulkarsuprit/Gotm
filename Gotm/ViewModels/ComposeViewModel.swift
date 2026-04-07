@@ -84,6 +84,7 @@ final class ComposeViewModel {
     let rewriteSettings = RewriteSettings.shared
     var onSubmit: ((ComposeDraft) -> Void)?
     var onRequestPermission: (() -> Void)?
+    var onTranscriptUpdate: ((UUID, String) -> Void)?
 
     // MARK: - State
     var draft = ComposeDraft()
@@ -229,8 +230,8 @@ final class ComposeViewModel {
                     let formatted = await transcriptionService.formatWithAI(base, context: context)
                     
                     if formatted != base {
-                        // Update the entry with the formatted transcript
-                        RecordingStore.shared.updateTranscript(for: entry.id, transcript: formatted)
+                        // Update the entry with the formatted transcript via callback
+                        self.onTranscriptUpdate?(entry.id, formatted)
                     }
                 }
 

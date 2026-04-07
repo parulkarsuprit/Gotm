@@ -272,6 +272,9 @@ struct ContentView: View {
         composeVM.onRequestPermission = { [self] in
             showingPermissionAlert = true
         }
+        composeVM.onTranscriptUpdate = { [self] entryID, transcript in
+            store.updateTranscript(for: entryID, transcript: transcript)
+        }
     }
 
     // MARK: - Actions

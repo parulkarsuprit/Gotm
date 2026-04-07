@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 // MARK: - Personal Dictionary Entry
@@ -107,7 +108,7 @@ final class PersonalDictionary: ObservableObject {
         
         if let index = entries.firstIndex(where: { $0.normalizedTerm == normalized }) {
             // Increment usage count for existing term
-            let existing = entries[index]
+            var updated = entries[index]
             updated.usageCount += 1
             entries[index] = updated
         } else {
@@ -139,7 +140,7 @@ final class PersonalDictionary: ObservableObject {
     /// Update a term's category
     func updateCategory(id: UUID, to category: TermCategory) {
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
-        var updated = entries[index]
+        let existing = entries[index]
         // Since category isn't a var, we need to create new entry
         let newEntry = DictionaryEntry(
             id: existing.id,
