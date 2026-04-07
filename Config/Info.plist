@@ -59,5 +59,9 @@
         <string>InterTight-VariableFont_wght.ttf</string>
         <string>InterTight-Italic-VariableFont_wght.ttf</string>
     </array>
+    
+    <!-- API Keys - Injected from build settings -->
+    <key>DEEPGRAM_API_KEY</key>
+    <string>$(DEEPGRAM_API_KEY)</string>
 </dict>
 </plist>

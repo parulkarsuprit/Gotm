@@ -644,6 +644,11 @@ final class TranscriptionService {
     // MARK: - Deepgram batch (fallback)
 
     func transcribeViaDeepgram(fileURL: URL) async throws -> String {
+        guard !Secrets.deepgramAPIKey.isEmpty else {
+            print("❌ [Deepgram] API key not configured")
+            throw TranscriptionError.deepgramFailed
+        }
+        
         let url = URL(string: "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&detect_language=true")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"

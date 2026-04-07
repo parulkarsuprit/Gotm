@@ -1,23 +1,44 @@
 # Xcode
-*.xcuserstate
-xcuserdata/
+.DS_Store
+build/
 DerivedData/
 *.pbxuser
+!default.pbxuser
 *.mode1v3
+!default.mode1v3
 *.mode2v3
+!default.mode2v3
 *.perspectivev3
+!default.perspectivev3
+xcuserdata/
 
-# Build
-build/
-*.ipa
-*.dSYM.zip
-*.dSYM
+# Swift Package Manager
+.build/
+Package.resolved
 
-# macOS
-.DS_Store
+# Secrets
+Secrets.xcconfig
+*.xcconfig
+!Template.xcconfig
+Config/Secrets.plist
 
-# Old frameworks no longer used
-whisper.xcframework/
+# API Keys
+*.key
+.env
+.env.local
 
-# API keys — never commit
-Gotm/Secrets.swift
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# Code Coverage
+*.gcno
+*.gcda
+*.gcov
+
+# Temporary files
+*.swp
+*.lock
+*~

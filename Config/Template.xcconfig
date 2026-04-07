@@ -1,0 +1,11 @@
+//
+// Template.xcconfig
+// Gotm
+//
+// Copy this file to Secrets.xcconfig and add your actual API keys
+// Secrets.xcconfig is gitignored and should never be committed
+//
+
+// Deepgram API Key
+// Get yours at: https://console.deepgram.com
+DEEPGRAM_API_KEY = your_deepgram_api_key_here
