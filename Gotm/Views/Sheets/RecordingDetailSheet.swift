@@ -2,10 +2,15 @@ import SwiftUI
 
 struct RecordingDetailSheet: View {
     let entry: RecordingEntry
+    let store: RecordingStore
 
     @Environment(\.dismiss) private var dismiss
     @State private var recordingService = RecordingService.shared
+    private let actionHandler = TagActionHandler.shared
     @State private var selectedTag: EntryTag? = nil
+    
+    // Local mutable copy of tags for this view
+    @State private var localTags: [EntryTag] = []
 
     var body: some View {
         NavigationStack {
@@ -70,14 +75,18 @@ struct RecordingDetailSheet: View {
                     }
 
                     // Tags
-                    if !entry.prioritisedTags.isEmpty {
+                    if !localTags.isEmpty {
                         tagsSection
                     }
                 }
                 .padding()
             }
             .navigationTitle(entry.name)
+            .onAppear {
+                localTags = entry.tags
+            }
             .navigationBarTitleDisplayMode(.inline)
+            .tagActionSheets() // Full sheets support (toast + share) in detail view
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
@@ -159,14 +168,46 @@ struct RecordingDetailSheet: View {
     private var tagsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             FlowLayout(spacing: 8) {
-                ForEach(entry.prioritisedTags) { tag in
-                    TagChip(tag: tag, isSelected: selectedTag?.id == tag.id)
-                        .onTapGesture {
+                ForEach(localTags) { tag in
+                    TagChip(
+                        tag: tag,
+                        isSelected: selectedTag?.id == tag.id,
+                        actionState: actionHandler.state(for: entry.id, tagType: tag.type),
+                        onConfirm: tag.status == .suggested ? { 
+                            confirmTag(tag)
+                            // Also trigger action after confirming
+                            actionHandler.executeAction(for: tag, entry: entry)
+                        } : nil,
+                        onAction: {
+                            // Execute action and select tag
+                            actionHandler.executeAction(for: tag, entry: entry)
                             withAnimation(.easeInOut(duration: 0.2)) {
-                                selectedTag = selectedTag?.id == tag.id ? nil : tag
+                                selectedTag = tag
+                            }
+                        },
+                        showActionIndicator: actionHandler.canExecuteAction(for: tag.type)
+                    )
+                    .contextMenu {
+                        if tag.status == .suggested {
+                            Button {
+                                confirmTag(tag)
+                            } label: {
+                                Label("Confirm", systemImage: "checkmark")
+                            }
+                            Button(role: .destructive) {
+                                removeTag(tag)
+                            } label: {
+                                Label("Remove", systemImage: "trash")
                             }
                         }
+                    }
                 }
+            }
+
+            if hasSuggestedTags {
+                Text("Tap + to confirm suggested tags, or long-press to remove")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
 
             if let selected = selectedTag {
@@ -178,6 +219,32 @@ struct RecordingDetailSheet: View {
                         .transition(.opacity.combined(with: .offset(y: 4)))
                 }
             }
+        }
+    }
+    
+    private var hasSuggestedTags: Bool {
+        localTags.contains(where: { $0.status == .suggested })
+    }
+    
+    private func confirmTag(_ tag: EntryTag) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            if let idx = localTags.firstIndex(where: { $0.id == tag.id }) {
+                localTags[idx].status = .auto
+                localTags[idx].confidence = max(localTags[idx].confidence, 0.90)
+                // Save to store
+                store.updateTags(for: entry.id, tags: localTags)
+            }
+        }
+    }
+    
+    private func removeTag(_ tag: EntryTag) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            localTags.removeAll(where: { $0.id == tag.id })
+            if selectedTag?.id == tag.id {
+                selectedTag = nil
+            }
+            // Save to store
+            store.updateTags(for: entry.id, tags: localTags)
         }
     }
 

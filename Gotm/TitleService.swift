@@ -46,25 +46,35 @@ final class TitleService {
     private let instructions = """
         You are an expert at distilling rambling, unstructured voice notes into sharp, memorable titles.
 
-        Voice notes are stream-of-consciousness speech — full of filler words, incomplete thoughts, and wandering sentences. Your job is to cut through the noise and find the single most important idea, then express it as a title that instantly recalls the note's purpose days later.
+        Voice notes are stream-of-consciousness speech — full of filler words, incomplete thoughts, and wandering sentences. Your job is to cut through the noise and find the single most important idea FROM THE ACTUAL TRANSCRIPT, then express it as a title.
+
+        CRITICAL RULES:
+        - You MUST ONLY use words, concepts, and topics that appear IN THE TRANSCRIPT
+        - NEVER hallucinate content that isn't in the transcript
+        - NEVER use examples from this prompt as actual titles
+        - If the transcript says "I'm halfway through this joint", the title must reference THAT content — not "Dentist" or "Tuesday" or anything unrelated
 
         HOW TO EXTRACT THE TITLE:
-        1. Identify the core intent — is this a task, reminder, idea, decision, plan, observation, or piece of information?
-        2. Find the key subject — what person, project, place, object, or concept is at the centre?
-        3. Determine the action or angle — what needs to happen, what was decided, or what is the main point?
+        1. Read the transcript carefully
+        2. Identify what the user ACTUALLY said — find the core subject and intent
+        3. Use the user's OWN WORDS or close paraphrases — never invent new topics
         4. Construct the title as: [Action or Topic] + [Subject] + [Essential Context only if it fits]
 
         TITLE RULES:
-        - Title Case: Capitalize All Major Words. Do not capitalize articles (a, an, the), short prepositions (in, on, at, for, of, to, with), or coordinating conjunctions (and, but, or) unless they are the first word
+        - Title Case: Capitalize All Major Words
         - 5–10 words ideal, 12 words absolute maximum
         - No trailing punctuation of any kind
-        - Be specific — "Fix Checkout Crash on Payment Screen" beats "App Bug"
-        - Be concrete — "Call Dentist to Reschedule Tuesday Appointment" beats "Health Stuff"
-        - When there is a task or action, lead with the verb: "Book Flights", "Follow Up With", "Review Before"
-        - When it is information or an observation, lead with the topic: "Flight Details for Tokyo", "Meeting Notes from Product Review"
-        - When it is an idea, lead with the idea itself — not the word "Idea": "Offline Mode for the App", "Dark Theme for Settings Screen"
-        - If the note covers multiple topics, pick the dominant one — do not list them all
-        - Strip all filler: um, uh, like, so, basically, you know, right, okay, I mean, actually, literally
+        - Use ONLY content from the transcript — if "dentist" isn't mentioned, it cannot be in the title
+        - When there is a task or action, lead with the verb
+        - When it is information, lead with the topic
+        - Strip filler words: um, uh, like, so, basically, you know, right, okay, I mean, actually, literally
+
+        EXAMPLES OF CORRECT BEHAVIOR:
+        Transcript: "Hi how are you doing I'm still halfway through this joint"
+        Title: "Halfway Through This Joint"
+        
+        Transcript: "Need to call the dentist about Tuesday"
+        Title: "Call Dentist About Tuesday Appointment"
 
         OUTPUT: Only the title. No explanation, no quotation marks, no extra text whatsoever.
         """
@@ -80,7 +90,10 @@ final class TitleService {
         }
 
         // Retry with a stripped-down prompt — guardrail may have fired on content in the instructions
-        let fallbackInstructions = "Generate a Title Case title (5–12 words, no trailing punctuation) that summarises this voice note. Output only the title."
+        let fallbackInstructions = """
+            Create a title (5–12 words, Title Case, no punctuation) using ONLY words and concepts from this transcript. \
+            Do not add information not in the text. Output only the title.
+            """
         if let title = await attempt(instructions: fallbackInstructions, prompt: prompt) {
             return title
         }
@@ -125,6 +138,13 @@ final class TitleService {
                 .trimmingCharacters(in: CharacterSet.punctuationCharacters.subtracting(CharacterSet(charactersIn: ")")))
 
             guard !raw.isEmpty, !isGarbageTitle(raw) else { return nil }
+            
+            // Validate title is related to transcript content
+            guard isTitleRelatedToTranscript(raw, transcript: prompt) else {
+                print("⚠️ [TitleService] Generated title '\(raw)' unrelated to transcript - rejecting")
+                return nil
+            }
+            
             return applyTitleCase(raw)
         } catch let error as LanguageModelSession.GenerationError {
             if case .guardrailViolation = error {
@@ -137,6 +157,37 @@ final class TitleService {
             print("⚠️ [TitleService] Failed: \(error)")
             return nil
         }
+    }
+    
+    /// Validates that the generated title contains content actually present in the transcript
+    private func isTitleRelatedToTranscript(_ title: String, transcript: String) -> Bool {
+        let titleLower = title.lowercased()
+        let transcriptLower = transcript.lowercased()
+        
+        // Split title into meaningful words (ignore common words)
+        let commonWords: Set<String> = [
+            "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with",
+            "by", "from", "up", "out", "as", "is", "are", "was", "were", "be", "been",
+            "being", "have", "has", "had", "do", "does", "did", "will", "would", "could",
+            "should", "may", "might", "must", "shall", "can", "need", "about", "this", "that"
+        ]
+        
+        let titleWords = titleLower
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty && $0.count > 2 && !commonWords.contains($0) }
+        
+        guard !titleWords.isEmpty else { return true } // Too short to validate meaningfully
+        
+        // At least 50% of significant title words should appear in transcript
+        let matchingWords = titleWords.filter { transcriptLower.contains($0) }
+        let matchRatio = Double(matchingWords.count) / Double(titleWords.count)
+        
+        if matchRatio < 0.5 {
+            print("⚠️ [TitleService] Title content mismatch: \(matchingWords.count)/\(titleWords.count) words match")
+            return false
+        }
+        
+        return true
     }
 
     private func applyTitleCase(_ text: String) -> String {

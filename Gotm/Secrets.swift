@@ -1,36 +1,55 @@
 import Foundation
 
 /// Secure storage for API keys and sensitive configuration
-/// Keys are injected at build time from Secrets.xcconfig (not in git)
 enum Secrets {
     
     /// Deepgram API Key for transcription services
-    /// Set in Secrets.xcconfig as DEEPGRAM_API_KEY
-    static let deepgramAPIKey: String = {
-        // Try to get from build settings first (production/ci)
-        if let key = Bundle.main.object(forInfoDictionaryKey: "DEEPGRAM_API_KEY") as? String,
-           !key.isEmpty,
-           !key.contains("your_deepgram") {
-            return key
+    /// First checks Keychain, then falls back to build settings (migration path)
+    static var deepgramAPIKey: String {
+        // Priority 1: Keychain (most secure, persisted)
+        if let keychainKey = KeychainService.load(.deepgramAPIKey),
+           !keychainKey.isEmpty {
+            return keychainKey
         }
         
-        // Fallback to environment variable (local development)
+        // Priority 2: Build settings (for CI/production or first launch)
+        if let buildKey = Bundle.main.object(forInfoDictionaryKey: "DEEPGRAM_API_KEY") as? String,
+           !buildKey.isEmpty,
+           !buildKey.contains("your_deepgram") {
+            // Migrate to keychain for future use
+            KeychainService.save(buildKey, for: .deepgramAPIKey)
+            return buildKey
+        }
+        
+        // Priority 3: Environment variable (local development)
         if let envKey = ProcessInfo.processInfo.environment["DEEPGRAM_API_KEY"],
            !envKey.isEmpty {
+            // Migrate to keychain for future use
+            KeychainService.save(envKey, for: .deepgramAPIKey)
             return envKey
         }
         
-        // Development placeholder - app will show error for transcription
+        // Not configured
         #if DEBUG
         print("⚠️ [Secrets] DEEPGRAM_API_KEY not set. Transcription will fail.")
-        print("⚠️ [Secrets] Copy Config/Template.xcconfig to Config/Secrets.xcconfig and add your key")
+        print("⚠️ [Secrets] Add your key to Config/Secrets.xcconfig")
         #endif
         
         return ""
-    }()
+    }
     
     /// Check if required secrets are configured
     static var isConfigured: Bool {
         !deepgramAPIKey.isEmpty
+    }
+    
+    /// Manually set API key (for settings UI)
+    static func setAPIKey(_ key: String) -> Bool {
+        return KeychainService.save(key, for: .deepgramAPIKey)
+    }
+    
+    /// Clear stored API key
+    static func clearAPIKey() {
+        KeychainService.delete(.deepgramAPIKey)
     }
 }

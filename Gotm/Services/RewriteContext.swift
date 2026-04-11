@@ -189,11 +189,13 @@ struct RewriteContext: Codable, Equatable {
     }
     
     /// Default context for voice notes
-    static let `default` = RewriteContext(
-        appType: .notes,
-        locale: Locale.current.identifier,
-        detectedLanguage: "en"
-    )
+    static var `default`: RewriteContext {
+        RewriteContext(
+            appType: .notes,
+            locale: Locale.current.identifier,
+            detectedLanguage: "en"
+        )
+    }
 }
 
 // MARK: - Endpoint Metadata

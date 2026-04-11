@@ -15,8 +15,8 @@ final class TagService {
         // Layer 1: fast rule-based extractors (run synchronously, no AI cost)
         tags += ruleTags(for: text)
 
-        // Conflict resolution: Event vs Reminder on same trigger span
-        tags = resolveEventReminderConflict(tags)
+        // Conflict resolution: remove duplicate/overlapping tags
+        tags = resolveConflicts(tags)
 
         // Deduplicate (keep highest confidence per type) and sort by feed priority
         var best: [TagType: EntryTag] = [:]
@@ -52,14 +52,18 @@ final class TagService {
             tags.append(EntryTag(type: .question, status: .auto, confidence: 0.90, triggerText: trigger))
         }
 
-        // Reminder — suggested (can be wrong on casual "by" usage)
+        // Reminder — auto-apply if strong signal, suggested if weaker
         if !isNegated, let trigger = matchReminder(lower) {
-            tags.append(EntryTag(type: .reminder, status: .suggested, confidence: 0.82, triggerText: trigger))
+            let confidence = isStrongReminder(lower) ? 0.88 : 0.78
+            let status: TagStatus = confidence >= 0.85 ? .auto : .suggested
+            tags.append(EntryTag(type: .reminder, status: status, confidence: confidence, triggerText: trigger))
         }
 
-        // Event — suggested (needs time + meeting verb combo)
+        // Event — auto-apply if strong signal, suggested if weaker  
         if let trigger = matchEvent(lower) {
-            tags.append(EntryTag(type: .event, status: .suggested, confidence: 0.85, triggerText: trigger))
+            let confidence = isStrongEvent(lower) ? 0.88 : 0.78
+            let status: TagStatus = confidence >= 0.85 ? .auto : .suggested
+            tags.append(EntryTag(type: .event, status: status, confidence: confidence, triggerText: trigger))
         }
 
         // Reference — auto-apply, low harm if wrong
@@ -80,9 +84,11 @@ final class TagService {
         // Person — handled entirely by AI model (rule-based detection is too unreliable:
         // it can't distinguish human names from bands, places, brands, etc.)
 
-        // Rule-based action signals (strong imperative patterns only)
+        // Rule-based action signals
         if !isNegated, let trigger = matchActionRules(lower) {
-            tags.append(EntryTag(type: .action, status: .suggested, confidence: 0.75, triggerText: trigger))
+            let confidence = isStrongAction(lower) ? 0.85 : 0.75
+            let status: TagStatus = confidence >= 0.85 ? .auto : .suggested
+            tags.append(EntryTag(type: .action, status: status, confidence: confidence, triggerText: trigger))
         }
 
         return tags
@@ -103,6 +109,14 @@ final class TagService {
     }
 
     private func matchQuestion(_ lower: String) -> String? {
+        // Guard: exclude idea statements that might trigger question patterns
+        let ideaIndicators = [
+            "i have an idea", "i have a idea", "my idea is", "idea for",
+            "idea: ", "here's an idea", "here is an idea",
+            "another idea", "new idea", "app idea"
+        ]
+        if ideaIndicators.contains(where: { lower.contains($0) }) { return nil }
+        
         // No bare "?" check — a single question mark doesn't mean the note is a question.
         // The AI model handles question detection with full context.
         // Rules only fire on unambiguous question structures.
@@ -188,12 +202,34 @@ final class TagService {
     }
 
     private func matchEvent(_ lower: String) -> String? {
+        // Guard: exclude past tense markers - events are future-oriented
+        let pastTenseIndicators = [
+            " went ", "went well", "went badly", " was ", "were ", " had ",
+            "happened", "occurred", "took place", "finished", "completed",
+            "yesterday", "last week", "last month", "last monday", "last tuesday",
+            "already ", "just finished", "just completed", "recently"
+        ]
+        if pastTenseIndicators.contains(where: { lower.contains($0) }) { return nil }
+        
+        // Guard: exclude retrospective phrases
+        let retrospectivePhrases = [
+            "the meeting with", "my meeting with", "our meeting with",
+            "the call with", "my call with", "our call with",
+            "catch up with", "catching up with" // Past tense usage
+        ]
+        // Only block if it looks like a past reference (no future time words)
+        let futureTimeWords = ["tomorrow", "next ", "upcoming", "later", "soon"]
+        let hasFutureMarker = futureTimeWords.contains(where: { lower.contains($0) })
+        if !hasFutureMarker && retrospectivePhrases.contains(where: { lower.contains($0) }) {
+            return nil
+        }
+        
         let meetingVerbs = [
             // Explicit scheduling
             "meeting with", "meeting at", "meeting on",
             "appointment", "appointments",
-            "scheduled", "schedule a", "schedule the",
-            "book a", "book the", "booked",
+            "schedule a", "schedule the",
+            "book a", "book the",
             // Call/sync
             "call with", "call at", "on a call",
             "sync with", "sync at",
@@ -201,8 +237,6 @@ final class TagService {
             "video call", "phone call",
             // Social/in-person
             "meet ", "meeting ", "meetup",
-            "catch up with", "catchup with", "catching up with",
-            "session with", "session at",
             "coffee with", "grabbing coffee", "getting coffee",
             "lunch with", "grabbing lunch", "getting lunch",
             "dinner with", "grabbing dinner", "getting dinner",
@@ -373,27 +407,54 @@ final class TagService {
 
     // MARK: - Conflict resolution
 
+    /// Resolves conflicts between similar tag types to reduce false positives.
+    /// Priority: Purchase > Reminder > Action (for buy-related tasks)
+    ///           Reminder > Action (for general tasks)
+    ///           Event stands alone
+    private func resolveConflicts(_ tags: [EntryTag]) -> [EntryTag] {
+        var result = tags
+        
+        // 1. Event vs Reminder: Event wins if same trigger
+        result = resolveEventReminderConflict(result)
+        
+        // 2. Purchase vs Reminder vs Action: Purchase wins for buy-related
+        result = resolvePurchaseReminderActionConflict(result)
+        
+        return result
+    }
+    
     /// If Event and Reminder both fired on the same trigger phrase → keep Event only.
-    /// If they fired on different phrases → keep both (genuinely separate signals).
     private func resolveEventReminderConflict(_ tags: [EntryTag]) -> [EntryTag] {
-        guard let eventTag = tags.first(where: { $0.type == .event }),
-              let reminderTag = tags.first(where: { $0.type == .reminder }) else {
+        guard tags.contains(where: { $0.type == .event }),
+              tags.contains(where: { $0.type == .reminder }) else {
             return tags
         }
-
-        // If trigger texts overlap or are the same → same phrase, drop Reminder
-        let eventTrigger = eventTag.triggerText?.lowercased() ?? ""
-        let reminderTrigger = reminderTag.triggerText?.lowercased() ?? ""
-
-        let sameSpan = !eventTrigger.isEmpty
-            && !reminderTrigger.isEmpty
-            && (eventTrigger.contains(reminderTrigger) || reminderTrigger.contains(eventTrigger))
-
-        if sameSpan {
-            return tags.filter { $0.type != .reminder }
+        // Event is more specific - drop Reminder when both exist
+        return tags.filter { $0.type != .reminder }
+    }
+    
+    /// Resolves conflicts between Purchase, Reminder, and Action.
+    /// Logic:
+    /// - If Purchase exists (buy/order/purchase keywords) → drop Reminder and Action
+    /// - Else if Reminder exists (remind me/don't forget) → drop Action
+    /// - Else keep Action
+    private func resolvePurchaseReminderActionConflict(_ tags: [EntryTag]) -> [EntryTag] {
+        let hasPurchase = tags.contains(where: { $0.type == .purchase })
+        let hasReminder = tags.contains(where: { $0.type == .reminder })
+        _ = tags.contains(where: { $0.type == .action })
+        
+        // Purchase is most specific for buy-related tasks
+        if hasPurchase {
+            // Keep Purchase, drop Reminder and Action
+            return tags.filter { $0.type != .reminder && $0.type != .action }
         }
-
-        // Different triggers → both are genuine, keep both
+        
+        // Reminder is next most specific
+        if hasReminder {
+            // Keep Reminder, drop Action
+            return tags.filter { $0.type != .action }
+        }
+        
         return tags
     }
 
@@ -401,6 +462,36 @@ final class TagService {
 
     private func firstMatch(in text: String, patterns: [String]) -> String? {
         patterns.first(where: { text.contains($0) })
+    }
+    
+    // MARK: - Confidence Helpers
+    
+    private func isStrongReminder(_ lower: String) -> Bool {
+        let strongPatterns = [
+            "remind me", "don't forget", "dont forget", "remember to",
+            "make sure to", "don't let me forget", "follow up"
+        ]
+        return strongPatterns.contains(where: { lower.contains($0) })
+    }
+    
+    private func isStrongEvent(_ lower: String) -> Bool {
+        // Strong signals: explicit meeting verbs with specific time
+        let hasSpecificTime = [
+            "at ", "am", "pm", "noon", "o'clock", "oclock"
+        ].contains(where: { lower.contains($0) })
+        
+        let strongVerbs = [
+            "meeting with", "appointment", "scheduled", "booked"
+        ].contains(where: { lower.contains($0) })
+        
+        return hasSpecificTime && strongVerbs
+    }
+    
+    private func isStrongAction(_ lower: String) -> Bool {
+        let strongPatterns = [
+            "need to ", "have to ", "must ", "remind me to"
+        ]
+        return strongPatterns.contains(where: { lower.contains($0) })
     }
 
     private let commonWords: Set<String> = [

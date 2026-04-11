@@ -13,6 +13,12 @@ final class RecordingService: NSObject {
     private(set) var currentRecordingURL: URL?
     private(set) var recordingLevel: Double = 0
     private(set) var inputSampleRate: Double = 44100
+    
+    // Audio quality metrics
+    private(set) var averageLevel: Double = 0
+    private(set) var maxLevel: Double = 0
+    private var levelReadings: [Double] = []
+    private let audioQualityLock = OSAllocatedUnfairLock<Void>()
 
     private(set) var isPlaying: Bool = false
     private(set) var playbackProgress: TimeInterval = 0
@@ -20,15 +26,15 @@ final class RecordingService: NSObject {
     private(set) var playingURL: URL?
 
     // Called from the audio tap (background thread) with Int16 mono PCM chunks for Deepgram streaming.
-    nonisolated(unsafe) var onAudioBuffer: ((Data) -> Void)?
+    var onAudioBuffer: ((Data) -> Void)?
     // Called from the audio tap with the converted 16kHz mono PCM buffer for SFSpeechRecognizer.
-    nonisolated(unsafe) var onAudioPCMBuffer: ((AVAudioPCMBuffer) -> Void)?
+    var onAudioPCMBuffer: ((AVAudioPCMBuffer) -> Void)?
 
     private var engine: AVAudioEngine?
     // Written on audio tap thread, released on main actor after tap is removed.
-    nonisolated(unsafe) private var audioFile: AVAudioFile?
-    nonisolated(unsafe) private var converter: AVAudioConverter?
-    nonisolated(unsafe) private var targetFormat: AVAudioFormat?
+    private var audioFile: AVAudioFile?
+    private var converter: AVAudioConverter?
+    private var targetFormat: AVAudioFormat?
     // Latest RMS level from tap — thread-safe using lock
     private let levelLock = OSAllocatedUnfairLock<Double>(initialState: 0)
 
@@ -43,7 +49,7 @@ final class RecordingService: NSObject {
 
     func requestPermission() async -> Bool {
         await withCheckedContinuation { continuation in
-            AVAudioSession.sharedInstance().requestRecordPermission { granted in
+            AVAudioApplication.requestRecordPermission { granted in
                 continuation.resume(returning: granted)
             }
         }
@@ -52,7 +58,7 @@ final class RecordingService: NSObject {
     func prewarmAudioSession() {
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothHFP])
             try session.setActive(true)
             try session.setActive(false, options: .notifyOthersOnDeactivation)
         } catch {}
@@ -62,9 +68,14 @@ final class RecordingService: NSObject {
 
     func startRecording() throws {
         if isPlaying { stopPlayback() }
+        
+        // Reset audio quality metrics
+        averageLevel = 0
+        maxLevel = 0
+        levelReadings = []
 
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+        try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothHFP])
         try session.setActive(true)
         try? session.setPreferredSampleRate(16_000)
 
@@ -151,11 +162,53 @@ final class RecordingService: NSObject {
         currentRecordingURL = nil
         elapsedTime = 0
         recordingLevel = 0
+        // Keep audio quality metrics for checking after stop
         isRecording = false
         stopRecordingTimer()
         deactivateAudioSessionIfPossible()
 
         return (url: fileURL, duration: duration)
+    }
+    
+    /// Checks if the recorded audio has acceptable quality for transcription
+    /// - Returns: (isValid, reason) where reason is nil if valid, or explanation if invalid
+    func hasAcceptableAudioQuality() -> (isValid: Bool, reason: String?) {
+        // Very aggressive thresholds - normal speech averages 30-50%, peaks at 70-90%
+        // Ambient noise typically stays under 10% average, 20% peak
+        let minAverageLevel: Double = 0.15   // 15% - requires consistent audible speech
+        let minMaxLevel: Double = 0.40       // 40% - requires clear loud speech peaks
+        let minReadings: Int = 20            // Need 1 second of samples (at 50ms intervals)
+        
+        guard levelReadings.count >= minReadings else {
+            print("🔊 [AudioQuality] REJECTED: Not enough readings (\(levelReadings.count) < \(minReadings))")
+            return (false, "Recording too short")
+        }
+        
+        let avg = averageLevel
+        let peak = maxLevel
+        
+        // Debug logging
+        print("🔊 [AudioQuality] Readings: \(levelReadings.count), Avg: \(String(format: "%.3f", avg)), Peak: \(String(format: "%.3f", peak))")
+        
+        guard avg >= minAverageLevel else {
+            print("🔊 [AudioQuality] REJECTED: Average too low (\(String(format: "%.3f", avg)) < \(minAverageLevel))")
+            return (false, "Recording too quiet — try speaking closer to the mic")
+        }
+        
+        guard peak >= minMaxLevel else {
+            print("🔊 [AudioQuality] REJECTED: Peak too low (\(String(format: "%.3f", peak)) < \(minMaxLevel))")
+            return (false, "No clear speech detected — try speaking louder")
+        }
+        
+        print("🔊 [AudioQuality] ACCEPTED")
+        return (true, nil)
+    }
+    
+    /// Resets audio quality metrics (call after checking quality)
+    func resetAudioQualityMetrics() {
+        averageLevel = 0
+        maxLevel = 0
+        levelReadings = []
     }
 
     // MARK: - Playback
@@ -166,7 +219,7 @@ final class RecordingService: NSObject {
 
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothHFP])
             try session.setActive(true)
 
             player = try AVAudioPlayer(contentsOf: url)
@@ -202,12 +255,20 @@ final class RecordingService: NSObject {
         recordingTimer?.invalidate()
         recordingTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             guard let self else { return }
-            if let start = self.recordingStartTime {
-                self.elapsedTime = Date().timeIntervalSince(start)
+            MainActor.assumeIsolated {
+                if let start = self.recordingStartTime {
+                    self.elapsedTime = Date().timeIntervalSince(start)
+                }
+                // Thread-safe level reading
+                let latest = self.levelLock.withLock { $0 }
+                self.recordingLevel = (self.recordingLevel * 0.7) + (latest * 0.3)
+                
+                // Track audio quality metrics
+                self.levelReadings.append(latest)
+                self.maxLevel = max(self.maxLevel, latest)
+                // Update running average
+                self.averageLevel = self.levelReadings.reduce(0, +) / Double(self.levelReadings.count)
             }
-            // Thread-safe level reading
-            let latest = self.levelLock.withLock { $0 }
-            self.recordingLevel = (self.recordingLevel * 0.7) + (latest * 0.3)
         }
     }
 
@@ -219,9 +280,12 @@ final class RecordingService: NSObject {
     private func startPlaybackTimer() {
         playbackTimer?.invalidate()
         playbackTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self, let player else { return }
-            self.playbackProgress = player.currentTime
-            if !player.isPlaying { self.stopPlayback() }
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                guard let player = self.player else { return }
+                self.playbackProgress = player.currentTime
+                if !player.isPlaying { self.stopPlayback() }
+            }
         }
     }
 

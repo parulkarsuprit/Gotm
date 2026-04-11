@@ -11,7 +11,9 @@ final class RecordingStore {
 
     init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
-        load()
+        Task {
+            await load()
+        }
     }
 
     func add(_ entry: RecordingEntry) {
@@ -55,23 +57,34 @@ final class RecordingStore {
     }
 
     func delete(_ entry: RecordingEntry) {
-        guard let index = recordings.firstIndex(of: entry) else { return }
-        let removed = recordings.remove(at: index)
-        // Capture everything needed for background I/O before leaving main actor
-        let audioURL = removed.audioURL
-        let attachmentURLs = removed.attachments.map { $0.url }
-        let saveURL = recordingsFileURL()
-        let snapshot = recordings
-        // File deletions and save run off the main thread so UI never freezes
+        deleteMultiple([entry])
+    }
+    
+    /// Delete multiple entries efficiently with single background task
+    func deleteMultiple(_ entries: [RecordingEntry]) {
+        let idsToDelete = Set(entries.map { $0.id })
+        
+        // Collect all URLs to delete before modifying array
+        var urlsToDelete: [URL] = []
+        
+        // Filter out entries to delete and collect their file URLs
+        let entriesToRemove = recordings.filter { idsToDelete.contains($0.id) }
+        recordings.removeAll { idsToDelete.contains($0.id) }
+        
+        for entry in entriesToRemove {
+            if let audioURL = entry.audioURL {
+                urlsToDelete.append(audioURL)
+            }
+            urlsToDelete.append(contentsOf: entry.attachments.map { $0.url })
+        }
+        
+        // Save immediately on main thread (data is small)
+        save()
+        
+        // Background task for file cleanup only
         Task.detached(priority: .utility) {
-            if let url = audioURL {
+            for url in urlsToDelete {
                 try? FileManager.default.removeItem(at: url)
-            }
-            for url in attachmentURLs {
-                try? FileManager.default.removeItem(at: url)
-            }
-            if let data = try? JSONEncoder().encode(snapshot) {
-                try? data.write(to: saveURL, options: .atomic)
             }
         }
     }
@@ -119,7 +132,7 @@ final class RecordingStore {
         }
     }
 
-    private func load() {
+    private func load() async {
         ensureRecordingsDirectoryExists()
         let url = recordingsFileURL()
 
@@ -130,22 +143,31 @@ final class RecordingStore {
 
         do {
             let decoded = try JSONDecoder().decode([RecordingEntry].self, from: data)
-            let normalized = decoded.map { entry -> RecordingEntry in
-                guard entry.duration <= 0, let audioURL = entry.audioURL else { return entry }
-                let assetDuration = AVURLAsset(url: audioURL).duration.seconds
-                guard assetDuration.isFinite && assetDuration > 0 else { return entry }
-                return RecordingEntry(
+            var normalized: [RecordingEntry] = []
+            for entry in decoded {
+                guard entry.duration <= 0, let audioURL = entry.audioURL else {
+                    normalized.append(entry)
+                    continue
+                }
+                // Use async loading for iOS 16+ compatibility
+                let asset = AVURLAsset(url: audioURL)
+                let duration = try? await asset.load(.duration).seconds
+                guard let duration = duration, duration.isFinite && duration > 0 else {
+                    normalized.append(entry)
+                    continue
+                }
+                normalized.append(RecordingEntry(
                     id: entry.id,
                     name: entry.name,
                     isTitleLoading: entry.isTitleLoading,
                     date: entry.date,
-                    duration: assetDuration,
+                    duration: duration,
                     audioURL: entry.audioURL,
                     audioTitle: entry.audioTitle,
                     transcript: entry.transcript,
                     text: entry.text,
                     attachments: entry.attachments
-                )
+                ))
             }
             recordings = normalized.sorted { $0.date > $1.date }
         } catch {

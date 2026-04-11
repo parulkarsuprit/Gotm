@@ -118,7 +118,7 @@ struct ContentView: View {
                 }
             }
             .sheet(item: $feedVM.viewingEntry) { entry in
-                RecordingDetailSheet(entry: entry)
+                RecordingDetailSheet(entry: entry, store: store)
             }
             .sheet(isPresented: $composeVM.showCamera) {
                 CameraPickerView { image in
@@ -153,6 +153,8 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(.light)
+        .tagActionOverlay() // Toast overlay for actions
+        .tagActionSheets() // Sheets for mail/share
         .onAppear {
             setupCallbacks()
             UIDevice.current.isBatteryMonitoringEnabled = true
@@ -199,12 +201,9 @@ struct ContentView: View {
                     .font(.system(size: 16))
             }
             Button(role: .destructive) {
-                feedVM.onDelete = { ids in
-                    for entry in store.recordings.filter({ ids.contains($0.id) }) {
-                        store.delete(entry)
-                    }
-                }
-                feedVM.deleteSelected()
+                let entriesToDelete = store.recordings.filter { feedVM.selectedIDs.contains($0.id) }
+                store.deleteMultiple(entriesToDelete)
+                feedVM.clearSelection()
             } label: {
                 Image(systemName: "trash")
                     .font(.system(size: 15))
@@ -317,8 +316,11 @@ struct ContentView: View {
     
     private func startRecordingCheckTimer() {
         stopRecordingCheckTimer()
-        recordingCheckTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { _ in
-            composeVM.checkRecordingDuration()
+        recordingCheckTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak composeVM] _ in
+            guard let composeVM = composeVM else { return }
+            Task { @MainActor in
+                composeVM.checkRecordingDuration()
+            }
         }
     }
     
@@ -347,7 +349,7 @@ struct ContentView: View {
         }
 
         Task {
-            let permission = AVAudioSession.sharedInstance().recordPermission
+            let permission = AVAudioApplication.shared.recordPermission
             switch permission {
             case .undetermined:
                 let granted = await composeVM.recordingService.requestPermission()
@@ -405,7 +407,15 @@ struct ContentView: View {
     private func handleQuickRecordStop() {
         stopRecordingCheckTimer()
         composeVM.stopQuickRecord { entry in
-            guard let entry = entry else { return }
+            guard let entry = entry else {
+                // Check if there was an error message to display
+                if let error = composeVM.lastError {
+                    errorMessage = error
+                    showingErrorAlert = true
+                    composeVM.lastError = nil
+                }
+                return
+            }
             store.add(entry)
 
             // Generate title and tags

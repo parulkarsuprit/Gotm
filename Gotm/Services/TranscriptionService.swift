@@ -48,24 +48,37 @@ final class TranscriptionService {
     // MARK: - SFSpeechRecognizer streaming
 
     func startStreaming() {
-        let recognizer = SFSpeechRecognizer(locale: Locale.current)
-        guard recognizer?.isAvailable == true else {
-            print("⚠️ [Speech] Recognizer unavailable for locale \(Locale.current.identifier)")
+        // Use US English for best recognition accuracy
+        let locale = Locale(identifier: "en-US")
+        let recognizer = SFSpeechRecognizer(locale: locale)
+        guard let recognizer = recognizer, recognizer.isAvailable else {
+            print("⚠️ [Speech] Recognizer unavailable for locale \(locale.identifier)")
             return
         }
         speechRecognizer = recognizer
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
-        // Use Apple's servers for speed; falls back to on-device automatically
+        
+        // CRITICAL: Use on-device recognition for better accuracy and privacy
+        // Server-based recognition often has issues with short audio or quick speech
+        if #available(iOS 15, *) {
+            request.requiresOnDeviceRecognition = true
+        }
+        
+        // Enable all available recognition features
         if #available(iOS 16, *) {
             request.addsPunctuation = true
         }
+        if #available(iOS 16, *) {
+            request.contextualStrings = ["meeting", "reminder", "call", "email", "todo", "shopping", "buy", "schedule"]
+        }
+        
         recognitionRequest = request
         liveTranscript = ""
         isStreaming = true
 
-        recognitionTask = recognizer?.recognitionTask(with: request) { [weak self] result, error in
+        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
             if let result {
                 self.liveTranscript = result.bestTranscription.formattedString
@@ -111,16 +124,20 @@ final class TranscriptionService {
 
     /// Post-processes a transcript with Apple Intelligence using the full production prompt.
     /// Returns the original string unchanged if formatting fails or the model is unavailable.
+    @MainActor
     func formatWithAI(
         _ transcript: String,
-        context: RewriteContext = .default,
+        context: RewriteContext? = nil,
         endpointMetadata: EndpointMetadata? = nil
     ) async -> String {
+        let context = context ?? RewriteContext.default
         // Skip very short notes — nothing meaningful to clean
         guard transcript.split(separator: " ").count > 8 else { return transcript }
 
         guard #available(iOS 26.0, *) else { return transcript }
-        let model = SystemLanguageModel.default
+        
+        // Access language model on MainActor
+        let model = getLanguageModel()
         guard case .available = model.availability else { return transcript }
 
         do {
@@ -146,6 +163,12 @@ final class TranscriptionService {
             print("⚠️ [Transcription] AI formatting failed: \(error)")
             return transcript
         }
+    }
+    
+    /// Helper to access MainActor-isolated SystemLanguageModel
+    @MainActor
+    private func getLanguageModel() -> SystemLanguageModel {
+        SystemLanguageModel.default
     }
 
     /// Builds the comprehensive production system prompt.
@@ -301,13 +324,25 @@ final class TranscriptionService {
     private static func isGarbageResponse(_ response: String, comparedTo original: String) -> Bool {
         let lower = response.lowercased()
 
-        // Refusal openers
+        // Refusal or conversational openers — AI talking back instead of formatting
         let refusalPrefixes = [
             "i'm sorry", "i am sorry", "i cannot", "i can't", "as a chatbot",
             "as a language model", "as an ai", "certainly!", "sure!", "of course!",
-            "i'd be happy", "i would be happy", "i apologize"
+            "i'd be happy", "i would be happy", "i apologize",
+            "i'm here to help", "im here to help", "i am here to help",
+            "how can i help", "how may i help", "what can i do",
+            "what would you like", "how can i assist", "hello!", "hi!",
+            "greetings!", "hey there", "i'm an ai", "i am an ai"
         ]
         if refusalPrefixes.contains(where: { lower.hasPrefix($0) }) { return true }
+        
+        // Conversational phrases anywhere in response
+        let conversationalPhrases = [
+            "i'm here to help", "im here to help", "how can i help you",
+            "what can i do for you", "how may i assist you",
+            "i'm just an ai", "i'm an ai assistant", "as your ai assistant"
+        ]
+        if conversationalPhrases.contains(where: { lower.contains($0) }) { return true }
 
         // Leaked instruction phrases — verbatim strings from our own system prompt
         let leakedPhrases = [
@@ -407,7 +442,7 @@ final class TranscriptionService {
             throw TranscriptionError.modelLoadFailed
         }
 
-        let options = DecodingOptions(task: .transcribe, language: nil, withoutTimestamps: true)
+        let options = DecodingOptions(task: .transcribe, language: "en", withoutTimestamps: true)
         let results = try await kit.transcribe(audioPath: fileURL.path, decodeOptions: options)
         let text = results.map { $0.text }.joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)

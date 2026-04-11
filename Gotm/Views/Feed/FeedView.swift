@@ -15,44 +15,48 @@ struct FeedView: View {
             if store.recordings.isEmpty {
                 EmptyStateView()
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 8) {
-                        if recordings.isEmpty {
-                            Text("No notes match \(viewModel.searchText)")
-                                .font(.system(size: 15))
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity)
-                                .padding(.top, 40)
-                        } else {
-                            ForEach(Array(recordings.enumerated()), id: \.element.id) { index, entry in
-                                RecordingCard(
-                                    entry: entry,
-                                    index: recordings.count - index,
-                                    isSelectable: viewModel.selectionMode,
-                                    isSelected: viewModel.selectedIDs.contains(entry.id),
-                                    isTranscribing: viewModel.transcribingIDs.contains(entry.id),
-                                    backgroundColor: cardColor(for: entry, at: index)
-                                )
-                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                    Button(role: .destructive) {
-                                        onDeleteEntry(entry)
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
+                List {
+                    if recordings.isEmpty {
+                        Text("No notes match \(viewModel.searchText)")
+                            .font(.system(size: 15))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 40)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                    } else {
+                        ForEach(Array(recordings.enumerated()), id: \.element.id) { index, entry in
+                            RecordingCard(
+                                entry: entry,
+                                index: recordings.count - index,
+                                isSelectable: viewModel.selectionMode,
+                                isSelected: viewModel.selectedIDs.contains(entry.id),
+                                isTranscribing: viewModel.transcribingIDs.contains(entry.id),
+                                backgroundColor: cardColor(for: entry, at: index)
+                            )
+                            .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    onDeleteEntry(entry)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
                                 }
-                                .onTapGesture {
-                                    onTapEntry(entry)
-                                }
-                                .onLongPressGesture(minimumDuration: 0.25) {
-                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                    viewModel.selectionMode = true
-                                    viewModel.toggleSelection(for: entry.id)
-                                }
+                            }
+                            .onTapGesture {
+                                onTapEntry(entry)
+                            }
+                            .onLongPressGesture(minimumDuration: 0.25) {
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                viewModel.selectionMode = true
+                                viewModel.toggleSelection(for: entry.id)
                             }
                         }
                     }
-                    .padding(.vertical, 6)
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
                 .scrollDismissesKeyboard(.immediately)
             }
         }
@@ -68,9 +72,16 @@ struct FeedView: View {
             Color(red: 0.97, green: 0.98, blue: 0.97),
         ]
 
+        // Guard: if no recordings or invalid index, return default
+        guard !recordings.isEmpty, index >= 0, index < recordings.count else {
+            return cardPalette[abs(entry.id.hashValue) % cardPalette.count]
+        }
+
         // Avoid repeating recent colors
-        let recentIndices = (0..<min(index, 2)).map { idx in
-            recordings[max(0, index - idx - 1)].id.hashValue
+        let recentIndices = (0..<min(index, 2)).compactMap { idx -> Int? in
+            let targetIndex = max(0, index - idx - 1)
+            guard targetIndex < recordings.count else { return nil }
+            return recordings[targetIndex].id.hashValue
         }
         let recentColors = recentIndices.map { idx in
             cardPalette[abs(idx) % cardPalette.count]

@@ -1,5 +1,14 @@
 import SwiftUI
 
+// MARK: - Custom Button Style for TagChip
+struct TagChipButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
+            .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
+    }
+}
+
 // MARK: - Flow layout for wrapping chips
 
 struct FlowLayout: Layout {
@@ -47,26 +56,151 @@ struct FlowLayout: Layout {
 struct TagChip: View {
     let tag: EntryTag
     var isSelected: Bool = false
+    var actionState: TagActionState = .idle
+    var onConfirm: (() -> Void)? = nil
+    var onAction: (() -> Void)? = nil
+    var showActionIndicator: Bool = false
 
     var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: tag.type.icon)
-                .imageScale(.small)
-            Text(tag.type.label)
+        // Use Button for proper tap handling that takes priority over parent gestures
+        Button(action: {
+            handleTap()
+        }) {
+            HStack(spacing: 4) {
+                Image(systemName: iconName)
+                    .imageScale(.small)
+                Text(tag.type.label)
+                
+                // State indicators
+                switch actionState {
+                case .processing:
+                    ProgressView()
+                        .scaleEffect(0.5)
+                        .frame(width: 10, height: 10)
+                case .completed:
+                    Image(systemName: "checkmark")
+                        .imageScale(.small)
+                        .fontWeight(.bold)
+                case .failed:
+                    Image(systemName: "exclamationmark")
+                        .imageScale(.small)
+                        .fontWeight(.bold)
+                case .idle:
+                    if tag.status == .suggested {
+                        Image(systemName: "plus")
+                            .imageScale(.small)
+                            .fontWeight(.bold)
+                    } else if showActionIndicator {
+                        Image(systemName: actionIcon)
+                            .imageScale(.small)
+                            .fontWeight(.semibold)
+                    }
+                }
+            }
+            .font(.caption)
+            .fontWeight(.medium)
+            .foregroundStyle(foregroundColor)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(chipColor.opacity(backgroundOpacity))
+            .clipShape(Capsule())
+            .overlay(chipOverlay)
         }
-        .font(.caption)
-        .fontWeight(.medium)
-        .foregroundStyle(chipColor.opacity(isSelected ? 1.0 : 0.80))
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(chipColor.opacity(isSelected ? 0.20 : 0.12))
-        .clipShape(Capsule())
-        .overlay {
-            if isSelected {
-                Capsule().strokeBorder(chipColor.opacity(0.45), lineWidth: 1)
+        .buttonStyle(TagChipButtonStyle())
+        .disabled(actionState == .processing)
+        .animation(.easeInOut(duration: 0.15), value: isSelected)
+        .animation(.easeInOut(duration: 0.15), value: tag.status)
+        .animation(.easeInOut(duration: 0.15), value: actionState)
+    }
+    
+    private func handleTap() {
+        switch actionState {
+        case .processing:
+            return // Ignore while processing
+        case .completed:
+            // Already added - provide haptic feedback that it's already done
+            let impact = UIImpactFeedbackGenerator(style: .light)
+            impact.impactOccurred()
+        case .failed, .idle:
+            if tag.status == .suggested {
+                // If onConfirm is provided, use it (for detail view with confirmation)
+                // Otherwise fall back to onAction (for card view)
+                if onConfirm != nil {
+                    onConfirm?()
+                } else {
+                    onAction?()
+                }
+            } else if showActionIndicator {
+                onAction?()
             }
         }
-        .animation(.easeInOut(duration: 0.15), value: isSelected)
+    }
+    
+    private var iconName: String {
+        tag.type.icon
+    }
+    
+    private var actionIcon: String {
+        switch tag.type {
+        case .event:
+            return "arrow.up.forward"
+        case .reminder, .action:
+            return "checklist"
+        case .purchase:
+            return "cart.badge.plus"
+        case .reference, .note, .idea, .decision, .question, .person, .money:
+            return "square.and.arrow.up"
+        }
+    }
+    
+    private var foregroundColor: Color {
+        let base = chipColor
+        switch actionState {
+        case .processing:
+            return base.opacity(0.5)
+        case .completed:
+            return base
+        case .failed:
+            return .red
+        case .idle:
+            if isSelected { return base }
+            if tag.status == .suggested { return base.opacity(0.60) }
+            return base.opacity(0.80)
+        }
+    }
+    
+    private var backgroundOpacity: Double {
+        switch actionState {
+        case .processing:
+            return 0.06
+        case .completed:
+            return 0.20
+        case .failed:
+            return 0.12
+        case .idle:
+            if isSelected { return 0.20 }
+            if tag.status == .suggested { return 0.06 }
+            return 0.12
+        }
+    }
+    
+    @ViewBuilder
+    private var chipOverlay: some View {
+        switch actionState {
+        case .completed:
+            Capsule().strokeBorder(chipColor.opacity(0.60), lineWidth: 1.5)
+        case .processing:
+            EmptyView()
+        case .failed:
+            Capsule().strokeBorder(Color.red.opacity(0.50), lineWidth: 1)
+        case .idle:
+            if isSelected {
+                Capsule().strokeBorder(chipColor.opacity(0.45), lineWidth: 1)
+            } else if tag.status == .suggested {
+                Capsule()
+                    .strokeBorder(chipColor.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            }
+        }
     }
 
     var chipColor: Color {

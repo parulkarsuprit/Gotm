@@ -39,6 +39,10 @@
     <string>Take photos to attach to your notes.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Attach photos and videos from your library to your notes.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>Create calendar events from your voice notes (e.g., "Meeting with Sarah tomorrow").</string>
+    <key>NSRemindersUsageDescription</key>
+    <string>Create reminders from your voice notes (e.g., "Buy milk" or "Call John").</string>
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
@@ -52,8 +56,6 @@
         <string>UIInterfaceOrientationLandscapeLeft</string>
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
-    <key>UIRequiresFullScreen</key>
-    <true/>
     <key>UIAppFonts</key>
     <array>
         <string>InterTight-VariableFont_wght.ttf</string>

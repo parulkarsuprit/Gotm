@@ -144,7 +144,7 @@ final class ComposeViewModel {
         quickPressStart = nil
 
         Task {
-            let permission = AVAudioSession.sharedInstance().recordPermission
+            let permission = AVAudioApplication.shared.recordPermission
             switch permission {
             case .undetermined:
                 let granted = await recordingService.requestPermission()
@@ -200,7 +200,7 @@ final class ComposeViewModel {
         
         if isLowBattery && duration > 60 {
             // Stop recording to save battery, but only after at least 1 min
-            recordingService.stopRecording()
+            _ = recordingService.stopRecording()
             quickRecordState = .idle
         }
     }
@@ -229,7 +229,24 @@ final class ComposeViewModel {
             onComplete(nil)
             return
         }
+        
+        // Check audio quality immediately - reject silent recordings
+        let qualityCheck = recordingService.hasAcceptableAudioQuality()
+        guard qualityCheck.isValid else {
+            try? FileManager.default.removeItem(at: fileURL)
+            recordingService.resetAudioQualityMetrics()
+            // Instant state change - no animation delay
+            quickRecordState = .idle
+            // Haptic feedback for error
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            // Store error for UI display
+            lastError = qualityCheck.reason
+            onComplete(nil)
+            return
+        }
+        recordingService.resetAudioQualityMetrics()
 
+        // Only show processing if we actually have audio to transcribe
         withAnimation(.easeInOut(duration: 0.2)) {
             quickRecordState = .processing
         }
@@ -310,7 +327,7 @@ final class ComposeViewModel {
     // MARK: - Normal Recording (for attachment flow)
 
     func startNormalRecording() async -> Bool {
-        let permission = AVAudioSession.sharedInstance().recordPermission
+        let permission = AVAudioApplication.shared.recordPermission
         switch permission {
         case .undetermined:
             let granted = await recordingService.requestPermission()
