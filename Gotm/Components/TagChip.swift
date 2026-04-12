@@ -86,11 +86,18 @@ struct TagChip: View {
                         .imageScale(.small)
                         .fontWeight(.bold)
                 case .idle:
-                    if tag.status == .suggested {
+                    // Priority 1: Show action icon for actionable tags (Calendar, Reminder, To-do, Purchase)
+                    if showActionIndicator && isActionableTag(tag.type) {
+                        Image(systemName: actionIcon)
+                            .imageScale(.small)
+                            .fontWeight(.semibold)
+                    } else if tag.status == .suggested {
+                        // Show + only for non-actionable tags when suggested
                         Image(systemName: "plus")
                             .imageScale(.small)
                             .fontWeight(.bold)
                     } else if showActionIndicator {
+                        // Fallback for non-actionable tags with share action
                         Image(systemName: actionIcon)
                             .imageScale(.small)
                             .fontWeight(.semibold)
@@ -150,6 +157,16 @@ struct TagChip: View {
             return "cart.badge.plus"
         case .reference, .note, .idea, .decision, .question, .person, .money:
             return "square.and.arrow.up"
+        }
+    }
+    
+    /// Returns true for tags that create items in Apple apps (Calendar, Reminders, To-do, Shopping)
+    private func isActionableTag(_ type: TagType) -> Bool {
+        switch type {
+        case .event, .reminder, .action, .purchase:
+            return true
+        case .reference, .note, .idea, .decision, .question, .person, .money:
+            return false
         }
     }
     

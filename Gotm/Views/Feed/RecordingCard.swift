@@ -11,6 +11,15 @@ struct RecordingCard: View {
     private let actionHandler = TagActionHandler.shared
     private let cardInset: CGFloat = 20
     
+    @State private var previewState: FilePreviewState?
+    
+    // Struct to hold preview state in one place
+    struct FilePreviewState: Identifiable {
+        let id = UUID()
+        let attachments: [MediaAttachment]
+        let initialIndex: Int
+    }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Main content row
@@ -88,26 +97,48 @@ struct RecordingCard: View {
                             .padding(.top, 8)
                     }
                     
-                    // File pills
+                    // File pills - now tappable
                     if !entry.fileAttachments.isEmpty {
                         VStack(spacing: 4) {
-                            ForEach(entry.fileAttachments) { attachment in
-                                HStack(spacing: 6) {
-                                    Image(systemName: "doc.fill")
-                                        .font(.system(size: 12))
-                                    Text(attachment.url.deletingPathExtension().lastPathComponent)
-                                        .font(.system(size: 13))
-                                        .lineLimit(1)
+                            ForEach(Array(entry.fileAttachments.enumerated()), id: \.element.id) { index, attachment in
+                                Button {
+                                    print("📎 [RecordingCard] Tapped file: \(attachment.url.lastPathComponent)")
+                                    print("📎 [RecordingCard] Total attachments: \(entry.fileAttachments.count)")
+                                    print("📎 [RecordingCard] Setting previewState...")
+                                    previewState = FilePreviewState(
+                                        attachments: entry.fileAttachments,
+                                        initialIndex: index
+                                    )
+                                    print("📎 [RecordingCard] previewState set!")
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: fileIcon(for: attachment.url))
+                                            .font(.system(size: 12))
+                                        Text(attachment.url.deletingPathExtension().lastPathComponent)
+                                            .font(.system(size: 13))
+                                            .lineLimit(1)
+                                        Spacer()
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(Color(.systemFill))
+                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                                 }
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(Color(.systemFill))
-                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .buttonStyle(.plain)
                             }
                         }
                         .padding(.top, 8)
+                        .sheet(item: $previewState) { state in
+                            FilePreviewView(
+                                attachments: state.attachments,
+                                initialIndex: state.initialIndex
+                            )
+                        }
                     }
                     
                     // Tags row - inline with content, NOT overlay
@@ -167,7 +198,25 @@ struct RecordingCard: View {
         // Use non-breaking space to prevent "2 PM" from wrapping
         return fmt.string(from: date).replacingOccurrences(of: " ", with: "\u{00A0}")
     }
+    
+    private func fileIcon(for url: URL) -> String {
+        let ext = url.pathExtension.lowercased()
+        switch ext {
+        case "pdf": return "doc.text.fill"
+        case "doc", "docx": return "doc.text"
+        case "xls", "xlsx", "numbers": return "tablecells"
+        case "ppt", "pptx", "key": return "play.rectangle"
+        case "jpg", "jpeg", "png", "gif", "heic", "webp": return "photo"
+        case "txt", "md", "rtf": return "doc.plaintext"
+        case "zip", "rar", "7z": return "archivebox"
+        case "mp4", "mov", "avi", "mkv": return "film"
+        case "mp3", "wav", "m4a", "aac": return "waveform"
+        default: return "doc.fill"
+        }
+    }
 }
+
+
 
 // MARK: - Selection Indicator
 

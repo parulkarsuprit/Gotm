@@ -15,8 +15,8 @@ enum TagType: String, Codable, CaseIterable {
 
     var label: String {
         switch self {
-        case .action:    return "Action"
-        case .event:     return "Event"
+        case .action:    return "To-do"
+        case .event:     return "Calendar"
         case .reminder:  return "Reminder"
         case .question:  return "Question"
         case .idea:      return "Idea"

@@ -44,9 +44,21 @@ struct RecordingEntry: Identifiable, Codable, Equatable {
     var audioAttachments: [MediaAttachment] { attachments.filter { $0.type == .audio } }
     var totalItemCount: Int { (audioURL != nil ? 1 : 0) + attachments.count + (hasText ? 1 : 0) }
 
-    /// Tags sorted by feed priority
+    /// Tags sorted by status (auto first, then suggested) then by feed priority
     var prioritisedTags: [EntryTag] {
-        tags.sorted { $0.type.feedPriority < $1.type.feedPriority }
+        tags.sorted {
+            // First sort by status: auto (high confidence) comes before suggested
+            let statusOrder: [TagStatus] = [.auto, .suggested]
+            let firstStatusIndex = statusOrder.firstIndex(of: $0.status) ?? 0
+            let secondStatusIndex = statusOrder.firstIndex(of: $1.status) ?? 0
+            
+            if firstStatusIndex != secondStatusIndex {
+                return firstStatusIndex < secondStatusIndex
+            }
+            
+            // Then sort by feed priority
+            return $0.type.feedPriority < $1.type.feedPriority
+        }
     }
 
     init(id: UUID = UUID(), name: String, isTitleLoading: Bool = false, date: Date = Date(),

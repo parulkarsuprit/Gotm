@@ -419,17 +419,46 @@ final class TranscriptionService {
 
     func transcribe(fileURL: URL) async throws -> String {
         print("🎯 [Transcription] Starting: \(fileURL.lastPathComponent)")
-
-        // 1. SFSpeechRecognizer — instant result accumulated during recording
-        let liveTranscript = await finishStreaming()
-        if !liveTranscript.isEmpty {
-            print("⚡ [Speech] Instant result (\(liveTranscript.count) chars)")
-            return liveTranscript
+        
+        // Get file size to detect long recordings
+        let fileSize: UInt64
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+            fileSize = attributes[.size] as? UInt64 ?? 0
+        } catch {
+            fileSize = 0
+        }
+        
+        // For files larger than ~2MB (roughly 2+ minutes), skip SFSpeechRecognizer 
+        // and go directly to Deepgram which handles long audio better
+        let isLongRecording = fileSize > 2_000_000
+        
+        if !isLongRecording {
+            // 1. SFSpeechRecognizer — instant result accumulated during recording
+            // Only for short recordings where streaming works well
+            let liveTranscript = await finishStreaming()
+            if liveTranscript.count > 20 {
+                print("⚡ [Speech] Instant result (\(liveTranscript.count) chars)")
+                return liveTranscript
+            }
+        } else {
+            // For long recordings, just stop the streaming without waiting for result
+            _ = await finishStreaming()
+            print("📝 [Transcription] Long recording detected (\(fileSize / 1024)KB), using Deepgram")
         }
 
-        // 2. Deepgram nova-2 — if SFSpeechRecognizer came back empty (e.g. no network on Apple's servers)
+        // 2. Deepgram nova-2 — best for long recordings and when SFSpeechRecognizer fails
         do {
-            let transcript = try await transcribeViaDeepgram(fileURL: fileURL)
+            // Add timeout for long recordings
+            let transcript: String
+            if isLongRecording {
+                // Longer timeout for big files
+                transcript = try await withTimeout(seconds: 60) {
+                    try await self.transcribeViaDeepgram(fileURL: fileURL)
+                }
+            } else {
+                transcript = try await transcribeViaDeepgram(fileURL: fileURL)
+            }
             print("✅ [Deepgram] Done: \(transcript.prefix(80))")
             return transcript
         } catch {
@@ -449,6 +478,27 @@ final class TranscriptionService {
 
         print("✅ [WhisperKit] Done: \(text.prefix(80))")
         return text
+    }
+    
+    /// Helper to add timeout to async operations
+    private func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            // Add the actual work
+            group.addTask {
+                try await operation()
+            }
+            
+            // Add timeout task
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw TranscriptionError.timeout
+            }
+            
+            // Return first result and cancel the other
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
     }
 }
 
@@ -475,6 +525,7 @@ enum TranscriptionError: Error, LocalizedError {
     case deepgramFailed
     case emptyTranscript
     case apiKeyMissing
+    case timeout
     
     var errorDescription: String? {
         switch self {
@@ -488,6 +539,8 @@ enum TranscriptionError: Error, LocalizedError {
             return "No speech detected"
         case .apiKeyMissing:
             return "Transcription service not configured"
+        case .timeout:
+            return "Transcription timed out - please try again"
         }
     }
 }

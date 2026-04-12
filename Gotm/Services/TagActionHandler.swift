@@ -532,6 +532,8 @@ struct TagActionSheetModifier: ViewModifier {
     private let emailService = EmailService.shared
     private let notesService = NotesService.shared
     
+    @State private var shareCoordinator: ShareSheetCoordinator?
+    
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: Bindable(emailService).isShowingMailCompose) {
@@ -542,15 +544,92 @@ struct TagActionSheetModifier: ViewModifier {
                     )
                 }
             }
-            .sheet(isPresented: Bindable(notesService).isShowingShareSheet) {
-                ShareSheetView(
-                    isPresented: Bindable(notesService).isShowingShareSheet,
-                    items: notesService.shareItems,
-                    subject: notesService.shareSubject
-                )
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+            // Use a coordinator to present share sheet directly from window
+            .onChange(of: notesService.isShowingShareSheet) { _, isShowing in
+                if isShowing {
+                    shareCoordinator = ShareSheetCoordinator(
+                        isPresented: Bindable(notesService).isShowingShareSheet,
+                        items: notesService.shareItems,
+                        subject: notesService.shareSubject
+                    )
+                    shareCoordinator?.present()
+                } else {
+                    shareCoordinator?.dismiss()
+                    shareCoordinator = nil
+                }
             }
+    }
+}
+
+/// Coordinator that presents share sheet directly without SwiftUI sheet wrapper
+@MainActor
+class ShareSheetCoordinator: NSObject {
+    private var isPresented: Binding<Bool>
+    private let items: [Any]
+    private let subject: String?
+    private weak var activityVC: UIActivityViewController?
+    
+    init(isPresented: Binding<Bool>, items: [Any], subject: String?) {
+        self.isPresented = isPresented
+        self.items = items
+        self.subject = subject
+        super.init()
+    }
+    
+    func present() {
+        guard activityVC == nil else { return }
+        
+        let activityVC = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        
+        if let subject = subject {
+            activityVC.setValue(subject, forKey: "subject")
+        }
+        
+        activityVC.excludedActivityTypes = [.assignToContact, .addToReadingList]
+        
+        activityVC.completionWithItemsHandler = { [weak self] _, _, _, _ in
+            self?.isPresented.wrappedValue = false
+        }
+        
+        activityVC.presentationController?.delegate = self
+        
+        self.activityVC = activityVC
+        
+        // Present from top view controller
+        if let topVC = findTopViewController() {
+            // For iPad, configure popover
+            if let popover = activityVC.popoverPresentationController {
+                popover.sourceView = topVC.view
+                popover.sourceRect = CGRect(x: topVC.view.bounds.midX, y: topVC.view.bounds.midY, width: 0, height: 0)
+                popover.permittedArrowDirections = []
+            }
+            
+            topVC.present(activityVC, animated: true)
+        }
+    }
+    
+    func dismiss() {
+        activityVC?.dismiss(animated: true)
+        activityVC = nil
+    }
+    
+    private func findTopViewController() -> UIViewController? {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = windowScene.windows.first(where: { $0.isKeyWindow }) else {
+            return nil
+        }
+        
+        var topVC = window.rootViewController
+        while let presented = topVC?.presentedViewController {
+            topVC = presented
+        }
+        return topVC
+    }
+}
+
+extension ShareSheetCoordinator: UIAdaptivePresentationControllerDelegate {
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        isPresented.wrappedValue = false
     }
 }
 

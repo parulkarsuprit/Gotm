@@ -446,7 +446,9 @@ struct ContentView: View {
         }
 
         let allTranscripts = draft.audioItems.compactMap { $0.transcript }.filter { !$0.isEmpty }
-        let hasTitleSources = !allTranscripts.isEmpty || !textContent.isEmpty
+        let hasTextSources = !allTranscripts.isEmpty || !textContent.isEmpty
+        let hasAttachments = !mediaAttachments.isEmpty
+        let hasTitleSources = hasTextSources || hasAttachments
         let inFlightIDs = Set(draft.audioItems.filter { $0.isTranscribing }.map { $0.id })
 
         let entry = RecordingEntry(
@@ -475,14 +477,28 @@ struct ContentView: View {
         // Generate title and tags
         if inFlightIDs.isEmpty && hasTitleSources {
             let entryID = entry.id
-            let titleSources = allTranscripts.isEmpty ? [textContent] : allTranscripts
-
+            
             Task {
-                let tagSource = ([textContent] + allTranscripts).filter { !$0.isEmpty }.joined(separator: " ")
-                async let title = TitleService.shared.generateEntryTitle(for: titleSources)
+                let finalTitle: String
+                let tagSource: String
+                
+                if hasTextSources {
+                    // Generate from text/transcript
+                    let titleSources = allTranscripts.isEmpty ? [textContent] : allTranscripts
+                    tagSource = ([textContent] + allTranscripts).filter { !$0.isEmpty }.joined(separator: " ")
+                    finalTitle = await TitleService.shared.generateEntryTitle(for: titleSources)
+                } else if hasAttachments {
+                    // Generate from attachments only
+                    finalTitle = await TitleService.shared.generateTitleFromAttachments(mediaAttachments)
+                    tagSource = "Attachment: \(finalTitle)"
+                } else {
+                    finalTitle = "Note"
+                    tagSource = ""
+                }
+                
                 async let tags = TagService.shared.generateTags(for: tagSource)
-                let (finalTitle, finalTags) = await (title, tags)
-                store.updateName(for: entryID, name: finalTitle)
+                let (resolvedTitle, finalTags) = await (finalTitle, tags)
+                store.updateName(for: entryID, name: resolvedTitle)
                 store.updateTags(for: entryID, tags: finalTags)
             }
 

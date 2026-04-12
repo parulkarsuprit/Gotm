@@ -25,7 +25,19 @@ final class TitleService {
 
     func generateTitle(for transcript: String) async -> String {
         lastError = nil
-        let result = await runModel(prompt: transcript)
+        
+        // For very long transcripts, truncate to first 500 chars for title generation
+        // This prevents the AI from getting overwhelmed and timing out
+        let maxLength = 500
+        let truncatedPrompt: String
+        if transcript.count > maxLength {
+            truncatedPrompt = String(transcript.prefix(maxLength)) + "..."
+            print("📝 [TitleService] Transcript truncated from \(transcript.count) to \(maxLength) chars for title generation")
+        } else {
+            truncatedPrompt = transcript
+        }
+        
+        let result = await runModel(prompt: truncatedPrompt)
         if result == "Note" && !transcript.isEmpty {
             lastError = .generationFailed
         }
@@ -39,6 +51,23 @@ final class TitleService {
             .map { "Recording \($0.offset + 1): \($0.element)" }
             .joined(separator: "\n")
         return await runModel(prompt: combined)
+    }
+    
+    /// Generates a title from analyzed attachment content
+    /// Used when user uploads only files/images without audio/text
+    func generateTitleFromAttachments(_ attachments: [MediaAttachment]) async -> String {
+        guard !attachments.isEmpty else { return "Note" }
+        
+        print("📝 [TitleService] Analyzing \(attachments.count) attachment(s) for title...")
+        
+        // Analyze attachments using Vision framework
+        let analysis = await AttachmentAnalysisService.shared.analyzeAttachments(attachments)
+        
+        // Generate title from the structured analysis
+        let title = await AttachmentAnalysisService.shared.generateTitleFromAnalysis(analysis)
+        
+        print("📝 [TitleService] Generated title: \(title)")
+        return title
     }
 
     // MARK: - Private
@@ -130,32 +159,43 @@ final class TitleService {
 
     private func attempt(instructions: String, prompt: String) async -> String? {
         guard #available(iOS 26.0, *) else { return nil }
+        
+        // Add 5-second timeout for title generation to prevent hanging
         do {
-            let session = LanguageModelSession(instructions: instructions)
-            let response = try await session.respond(to: prompt)
-            let raw = response.content
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .trimmingCharacters(in: CharacterSet.punctuationCharacters.subtracting(CharacterSet(charactersIn: ")")))
+            return try await withTimeout(seconds: 5) {
+                let session = LanguageModelSession(instructions: instructions)
+                let response = try await session.respond(to: prompt)
+                let raw = response.content
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .trimmingCharacters(in: CharacterSet.punctuationCharacters.subtracting(CharacterSet(charactersIn: ")")))
 
-            guard !raw.isEmpty, !isGarbageTitle(raw) else { return nil }
-            
-            // Validate title is related to transcript content
-            guard isTitleRelatedToTranscript(raw, transcript: prompt) else {
-                print("⚠️ [TitleService] Generated title '\(raw)' unrelated to transcript - rejecting")
-                return nil
+                guard !raw.isEmpty, !self.isGarbageTitle(raw) else { return nil }
+                
+                // Validate title is related to transcript content
+                guard self.isTitleRelatedToTranscript(raw, transcript: prompt) else {
+                    print("⚠️ [TitleService] Generated title '\(raw)' unrelated to transcript - rejecting")
+                    return nil
+                }
+                
+                return self.applyTitleCase(raw)
             }
-            
-            return applyTitleCase(raw)
-        } catch let error as LanguageModelSession.GenerationError {
-            if case .guardrailViolation = error {
-                print("⚠️ [TitleService] Guardrail hit — retrying with minimal prompt")
-            } else {
-                print("⚠️ [TitleService] Generation error: \(error)")
-            }
-            return nil
         } catch {
-            print("⚠️ [TitleService] Failed: \(error)")
+            print("⚠️ [TitleService] Attempt failed or timed out: \(error)")
             return nil
+        }
+    }
+    
+    /// Helper to add timeout to async operations
+    private func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw TitleError.generationFailed
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
         }
     }
     
